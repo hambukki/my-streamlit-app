@@ -427,6 +427,7 @@ def clear_messages():
 
 
 
+
 def load_tasks():
     """등록된 업무와 완료 여부를 함께 불러옵니다."""
 
@@ -1344,6 +1345,7 @@ with st.sidebar:
 
 
 
+
 if page == "home":
 
     import html as html_escape_module
@@ -2247,6 +2249,7 @@ elif page == "email":
 # ==================================================
 # 19. 캘린더
 # ==================================================
+
 
 
 
