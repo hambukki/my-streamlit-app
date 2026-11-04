@@ -4,7 +4,7 @@ from datetime import datetime
 
 import streamlit as st
 from aivle.core import now_kst, load_tasks
-from aivle.widgets import task_editor, render_task_actions
+from aivle.widgets import task_editor, render_task_actions, task_detail_dialog
 
 
 def render():
@@ -192,11 +192,14 @@ def render():
                     if task.get("is_done", False)
                     else ""
                 )
+                urgency = task.get("urgency", "normal")
+                urgency = urgency if urgency in ("urgent", "high", "normal", "low") else "normal"
 
                 event_html.append(
-                    f'<span class="calendar-event{done_class}" '
+                    f'<span class="calendar-event{done_class} urgency-{urgency}" '
                     f'title="{full_description}">'
-                    f'{escaped_short}'
+                    f'<span class="calendar-event-label">{escaped_short}</span>'
+                    f'<span class="calendar-tooltip">{full_description}</span>'
                     f'</span>'
                 )
 
@@ -227,8 +230,9 @@ def render():
     )
 
     st.caption(
-        "초록색은 미완료 업무, "
-        "회색 취소선은 완료된 업무를 뜻합니다."
+        "일정 칸에 마우스를 올리면 자세한 내용을 볼 수 있습니다. "
+        "연한 빨강은 긴급, 연한 주황은 높음, 민트는 보통, 연한 파랑은 낮음이며 "
+        "회색 취소선은 완료된 업무입니다."
     )
 
     st.divider()
@@ -299,6 +303,9 @@ def render():
 
                 if task["detail"]:
                     st.write(task["detail"])
+
+                if st.button("🔎 업무 상세 팝업", key=f"calendar_detail_{task['id']}"):
+                    task_detail_dialog(task["id"])
 
             with right:
                 render_task_actions(task, "calendar")

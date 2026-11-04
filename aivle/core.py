@@ -78,6 +78,14 @@ def init_db():
             extracted_text TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS task_presets (
+            id TEXT PRIMARY KEY,
+            sid TEXT NOT NULL,
+            title TEXT NOT NULL,
+            detail TEXT NOT NULL DEFAULT '',
+            urgency TEXT NOT NULL DEFAULT 'normal'
+        );
         """)
 
         fields = {
@@ -419,7 +427,8 @@ def load_tasks():
                 due_date,
                 due_time,
                 detail,
-                COALESCE(is_done, 0)
+                COALESCE(is_done, 0),
+                urgency
             FROM tasks
             WHERE sid=?
             ORDER BY
@@ -441,22 +450,32 @@ def load_tasks():
             "deadline": row[2] or "",
             "time": row[3] or "",
             "detail": row[4] or "",
-            "is_done": bool(row[5])
+            "is_done": bool(row[5]),
+            "urgency": row[6] or "normal"
         }
         for row in rows
     ]
 
 
-def add_task(title, due_date="", due_time="", detail=""):
+VALID_URGENCY = {"urgent", "high", "normal", "low"}
+
+
+def validate_urgency(urgency):
+    if urgency not in VALID_URGENCY:
+        raise ValueError("업무 강조 색상을 다시 선택해주세요.")
+
+
+def add_task(title, due_date="", due_time="", detail="", urgency="normal"):
     validate_task_fields(title, due_date, due_time)
+    validate_urgency(urgency)
     task_id = str(uuid.uuid4())
 
     with connect_db() as conn:
         conn.execute(
             """INSERT INTO tasks
-               (id, sid, title, due_date, due_time, detail)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (task_id, get_sid(), title, due_date, due_time, detail)
+               (id, sid, title, due_date, due_time, detail, urgency)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (task_id, get_sid(), title, due_date, due_time, detail, urgency)
         )
 
     return task_id
@@ -471,13 +490,14 @@ def validate_task_fields(title, due_date="", due_time=""):
         datetime.strptime(str(due_time), "%H:%M")
 
 
-def update_task(task_id, title, due_date="", due_time="", detail=""):
+def update_task(task_id, title, due_date="", due_time="", detail="", urgency="normal"):
     validate_task_fields(title, due_date, due_time)
+    validate_urgency(urgency)
     with connect_db() as conn:
         cursor = conn.execute(
-            """UPDATE tasks SET title=?, due_date=?, due_time=?, detail=?
+            """UPDATE tasks SET title=?, due_date=?, due_time=?, detail=?, urgency=?
                WHERE id=? AND sid=?""",
-            (title.strip(), due_date, due_time, detail, task_id, get_sid())
+            (title.strip(), due_date, due_time, detail, urgency, task_id, get_sid())
         )
         return cursor.rowcount == 1
 
@@ -494,12 +514,12 @@ def get_task(task_id):
     return next((item for item in load_tasks() if item["id"] == task_id), None)
 
 
-def add_task_if_missing(title, due_date="", due_time="", detail=""):
+def add_task_if_missing(title, due_date="", due_time="", detail="", urgency="normal"):
     """회의록이나 채팅을 반복 실행해도 동일 업무가 복제되지 않도록 합니다."""
     if any(t["task"] == title.strip() and t["deadline"] == due_date
            for t in load_tasks()):
         return False
-    add_task(title, due_date, due_time, detail)
+    add_task(title, due_date, due_time, detail, urgency)
     return True
 
 
@@ -546,6 +566,46 @@ def migrate_task_status():
                 "ALTER TABLE tasks "
                 "ADD COLUMN is_done INTEGER NOT NULL DEFAULT 0"
             )
+        if "urgency" not in columns:
+            conn.execute(
+                "ALTER TABLE tasks ADD COLUMN urgency TEXT NOT NULL DEFAULT 'normal'"
+            )
+
+
+def load_task_presets():
+    with connect_db() as conn:
+        rows = conn.execute(
+            "SELECT id, title, detail, urgency FROM task_presets "
+            "WHERE sid=? ORDER BY title", (get_sid(),)
+        ).fetchall()
+    return [{"id": row[0], "title": row[1], "detail": row[2],
+             "urgency": row[3]} for row in rows]
+
+
+def add_task_preset(title, detail="", urgency="normal"):
+    validate_task_fields(title)
+    validate_urgency(urgency)
+    with connect_db() as conn:
+        conn.execute(
+            "INSERT INTO task_presets (id, sid, title, detail, urgency) VALUES (?, ?, ?, ?, ?)",
+            (str(uuid.uuid4()), get_sid(), title.strip(), detail.strip(), urgency)
+        )
+
+
+def delete_task_preset(preset_id):
+    with connect_db() as conn:
+        conn.execute("DELETE FROM task_presets WHERE id=? AND sid=?", (preset_id, get_sid()))
+
+
+def create_task_from_preset(preset_id, due_date):
+    preset = next((row for row in load_task_presets() if row["id"] == preset_id), None)
+    if not preset:
+        raise ValueError("선택한 프리셋을 찾지 못했습니다.")
+    if any(row["task"] == preset["title"] and row["deadline"] == due_date
+           for row in load_tasks()):
+        return False
+    add_task(preset["title"], due_date, "", preset["detail"], preset["urgency"])
+    return True
 
 
 def set_task_done(task_id, done):

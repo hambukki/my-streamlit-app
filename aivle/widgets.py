@@ -7,7 +7,12 @@ import requests
 import streamlit as st
 
 from .core import (get_task, add_task, update_task, delete_task,
-                   rename_conversation, load_tasks, set_task_done, now_kst)
+                   rename_conversation, load_tasks, set_task_done, now_kst,
+                   add_task_preset)
+
+
+URGENCY_LABELS = {"urgent": "🔴 긴급 · 파스텔 레드", "high": "🟠 높음 · 파스텔 피치",
+                  "normal": "🟢 보통 · 파스텔 민트", "low": "🔵 낮음 · 파스텔 블루"}
 
 
 CITIES = {
@@ -39,18 +44,41 @@ def task_editor(task_id=None, suggested_date=""):
                          if default_time else now_kst().replace(hour=9, minute=0).time()),
             disabled=not use_time, step=900
         )
+        urgency_options = list(URGENCY_LABELS)
+        urgency = st.selectbox(
+            "업무 중요도·표시 색상", urgency_options,
+            index=urgency_options.index(item.get("urgency", "normal") if item else "normal"),
+            format_func=lambda value: URGENCY_LABELS[value]
+        )
         submitted = st.form_submit_button("저장", type="primary", use_container_width=True)
     if submitted:
         try:
             deadline = due_date.isoformat() if use_date else ""
             time_text = due_time.strftime("%H:%M") if use_time else ""
             if item:
-                update_task(task_id, name, deadline, time_text, detail)
+                update_task(task_id, name, deadline, time_text, detail, urgency)
             else:
-                add_task(name, deadline, time_text, detail)
+                add_task(name, deadline, time_text, detail, urgency)
             st.rerun()
         except ValueError as exc:
             st.error(f"입력 확인: {exc}")
+
+
+@st.dialog("상시 업무 프리셋 등록")
+def task_preset_editor():
+    st.caption("자주 하는 업무를 저장해 두고 홈에서 필요할 때 오늘의 업무로 추가합니다.")
+    with st.form("task_preset_create"):
+        title = st.text_input("프리셋 이름 *")
+        detail = st.text_area("업무 설명")
+        urgency = st.selectbox("표시 색상", list(URGENCY_LABELS),
+                               format_func=lambda value: URGENCY_LABELS[value])
+        submitted = st.form_submit_button("프리셋 저장", type="primary")
+    if submitted:
+        try:
+            add_task_preset(title, detail, urgency)
+            st.rerun()
+        except ValueError as exc:
+            st.error(str(exc))
 
 
 @st.dialog("업무 삭제 확인")
@@ -63,6 +91,22 @@ def task_delete_dialog(task_id):
     if st.button("휴지통 · 삭제 확인", type="primary", icon=":material/delete:"):
         delete_task(task_id)
         st.rerun()
+
+
+@st.dialog("업무 상세 보기")
+def task_detail_dialog(task_id):
+    task = get_task(task_id)
+    if not task:
+        st.info("삭제되었거나 접근할 수 없는 업무입니다.")
+        return
+    st.subheader(task["task"])
+    st.write("날짜:", task["deadline"] or "기한 미정")
+    if task["time"]:
+        st.write("시간:", task["time"])
+    st.write("상태:", "완료" if task["is_done"] else "미완료")
+    st.write("중요도:", URGENCY_LABELS.get(task.get("urgency", "normal"), "보통"))
+    st.divider()
+    st.write(task["detail"] or "추가 설명이 없습니다.")
 
 
 @st.dialog("대화 제목 수정")

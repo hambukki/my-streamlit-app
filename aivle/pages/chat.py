@@ -1,11 +1,13 @@
 """AI 채팅, 대화 라이브러리, 파일·음성, 일정 제안."""
+from datetime import datetime
+
 import streamlit as st
 from aivle.core import (search_conversations, switch_conversation,
                         start_new_conversation, save_setting, add_task, load_tasks,
                         get_active_chat_id)
 from aivle.widgets import (conversation_rename_dialog, task_editor,
-                           render_task_actions)
-from aivle.ai import (send_text_chat, send_voice_chat, send_uploaded_voice_chat,
+                           render_task_actions, URGENCY_LABELS)
+from aivle.ai import (send_text_chat, send_voice_chat,
                       improve_prompt, restore_prompt)
 
 
@@ -51,10 +53,13 @@ def render():
     if st.session_state.reply_audio:
         st.caption("에이블의 음성 답변")
         st.audio(
-            st.session_state.reply_audio,
-            format="audio/mp3",
+            bytes(st.session_state.reply_audio),
+            format="audio/mpeg",
             autoplay=st.session_state.autoplay_reply
         )
+        st.download_button("음성 답변 MP3 다운로드", data=st.session_state.reply_audio,
+                           file_name="aivle_reply.mp3", mime="audio/mpeg",
+                           key="download_chat_tts")
         st.session_state.autoplay_reply = False
 
     st.divider()
@@ -75,24 +80,34 @@ def render():
         placeholder="에이블에게 요청할 업무를 입력하세요."
     )
 
-    a, b, c, d = st.columns([1.3, 1.3, 1, 1])
+    a, b, microphone, c, d = st.columns([1, 1, 1, 1.5, 1.5])
 
     with a:
         st.button(
-            "프롬프트 개선",
-            icon=":material/auto_fix_high:",
+            "✨",
+            help="프롬프트 개선",
             on_click=improve_prompt,
             use_container_width=True
         )
 
     with b:
         st.button(
-            "질문 보내기",
-            icon=":material/send:",
+            "➤",
+            help="질문 보내기",
             on_click=send_text_chat,
             type="primary",
             use_container_width=True
         )
+
+    with microphone:
+        with st.popover("🎙️", use_container_width=True):
+            st.caption("마이크 녹음을 마치면 인식된 질문이 자동 전송됩니다.")
+            st.audio_input(
+                "음성으로 질문하기", key="chat_voice",
+                sample_rate=16000, on_change=send_voice_chat
+            )
+            if st.session_state.voice_transcript:
+                st.caption("최근 인식된 질문: " + st.session_state.voice_transcript)
 
     with c:
         st.checkbox(
@@ -104,7 +119,7 @@ def render():
         st.checkbox(
             "웹검색",
             key="web_enabled",
-            help="검증할 외부 정보에 검색을 사용합니다. 검색 API 비용이 추가될 수 있습니다."
+            help="켜면 최신 정보 요청에서 실제 웹검색을 수행하고 출처를 표시합니다. 검색 API 비용이 추가됩니다. 끄면 실시간 사실을 확인할 수 없습니다."
         )
 
     if st.session_state.prompt_original:
@@ -118,32 +133,6 @@ def render():
             st.button(
                 "원래 프롬프트로 되돌리기",
                 on_click=restore_prompt
-            )
-
-    with st.expander("음성으로 질문하기"):
-        st.caption(
-            "마이크로 녹음한 뒤 종료하면 "
-            "질문이 자동으로 전송됩니다."
-        )
-
-        st.audio_input(
-            "음성 질문",
-            key="chat_voice",
-            sample_rate=16000,
-            on_change=send_voice_chat
-        )
-
-        st.caption("마이크 녹음이 끊기면 파일로 녹음한 음성을 업로드할 수 있습니다.")
-        st.file_uploader("음성 파일 업로드", type=["wav", "mp3", "m4a", "webm"],
-                         key="voice_file_fallback")
-        if st.button("첨부 음성으로 질문", key="send_uploaded_voice"):
-            send_uploaded_voice_chat()
-            st.rerun()
-
-        if st.session_state.voice_transcript:
-            st.caption(
-                "인식된 질문: "
-                + st.session_state.voice_transcript
             )
 
     if st.session_state.chat_error:
@@ -168,7 +157,7 @@ def render():
                     value=proposal["title"]
                 )
                 date = st.text_input(
-                    "날짜 (YYYY-MM-DD)",
+                    "날짜 (YYYY-MM-DD, 공란이면 기한 미정)",
                     value=proposal["date"]
                 )
                 time_value = st.text_input(
@@ -179,6 +168,10 @@ def render():
                     "설명",
                     value=proposal["detail"]
                 )
+                urgency = st.selectbox(
+                    "업무 강조 색상", list(URGENCY_LABELS),
+                    format_func=lambda item: URGENCY_LABELS[item]
+                )
 
                 confirm = st.form_submit_button(
                     "일정에 추가",
@@ -187,7 +180,8 @@ def render():
 
             if confirm:
                 try:
-                    datetime.strptime(date, "%Y-%m-%d")
+                    if date:
+                        datetime.strptime(date, "%Y-%m-%d")
 
                     if time_value:
                         datetime.strptime(time_value, "%H:%M")
@@ -196,7 +190,8 @@ def render():
                         title,
                         date,
                         time_value,
-                        detail
+                        detail,
+                        urgency
                     )
 
                     st.session_state.pending_event = None

@@ -1,7 +1,10 @@
 """홈 대시보드와 오늘의 업무 브리핑."""
+from datetime import date
+
 import streamlit as st
-from aivle.core import now_kst, load_tasks, save_setting
-from aivle.widgets import (task_editor, render_task_actions, live_korea_clock,
+from aivle.core import (now_kst, load_tasks, save_setting, load_task_presets,
+                        create_task_from_preset, delete_task_preset)
+from aivle.widgets import (task_editor, task_preset_editor, render_task_actions, live_korea_clock,
                            CITIES, get_weather, weather_description, render_mini_calendar)
 
 
@@ -38,6 +41,12 @@ def render():
 
         else:
             upcoming_tasks.append(task)
+
+    def ordered(items):
+        weight = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+        return sorted(items, key=lambda item: (item["deadline"] or "9999-12-31",
+                                               weight.get(item.get("urgency"), 2),
+                                               item["time"] or ""))
 
     st.markdown(
         """
@@ -80,6 +89,31 @@ def render():
         if st.button("업무 추가", icon=":material/add:", key="home_task_add"):
             task_editor()
 
+        with st.expander("상시 업무 프리셋 · 자주 하는 업무 바로 등록", expanded=False):
+            st.caption("반복적으로 수행하는 업무를 저장해두고 필요할 때 오늘 일정으로 추가합니다.")
+            if st.button("+ 상시 업무 프리셋 만들기", key="home_preset_new"):
+                task_preset_editor()
+            presets = load_task_presets()
+            if not presets:
+                st.caption("등록된 프리셋이 없습니다.")
+            for preset in presets:
+                row_title, row_add, row_delete = st.columns([4, 2, 1])
+                with row_title:
+                    st.markdown(f"**{html_escape_module.escape(preset['title'])}**")
+                    if preset["detail"]:
+                        st.caption(preset["detail"])
+                with row_add:
+                    if st.button("오늘 업무로 추가", key=f"add_preset_{preset['id']}"):
+                        if create_task_from_preset(preset["id"], today_text):
+                            st.rerun()
+                        else:
+                            st.info("오늘 동일한 이름의 업무가 이미 등록돼 있습니다.")
+                with row_delete:
+                    with st.popover("🗑", help="프리셋 삭제"):
+                        if st.button("프리셋 삭제 확인", key=f"delete_preset_{preset['id']}"):
+                            delete_task_preset(preset["id"])
+                            st.rerun()
+
         st.caption(
             "완료하지 않은 업무를 기한별로 정리했습니다."
         )
@@ -109,10 +143,10 @@ def render():
             )
 
             groups = [
-                ("오늘의 업무", today_tasks),
-                ("다가오는 일정", upcoming_tasks),
-                ("기한이 지난 업무", overdue_tasks),
-                ("기한 미정 업무", undated_tasks)
+                ("오늘의 업무", ordered(today_tasks)),
+                ("다가오는 일정", ordered(upcoming_tasks)),
+                ("기한이 지난 업무", ordered(overdue_tasks)),
+                ("기한 미정 업무", ordered(undated_tasks))
             ]
 
             for group_name, group_tasks in groups:
@@ -149,10 +183,19 @@ def render():
                         else ""
                     )
 
+                    urgency = task.get("urgency", "normal")
+                    urgency = urgency if urgency in ("urgent", "high", "normal", "low") else "normal"
+                    countdown = ""
+                    if task["deadline"]:
+                        days_left = (date.fromisoformat(task["deadline"]) - today).days
+                        if 0 <= days_left <= 2:
+                            countdown = " · ⏳ " + ("오늘 마감" if days_left == 0 else f"D-{days_left}")
+                    emphasized = " deadline-soon" if countdown else ""
+
                     st.markdown(
                         f"""
-                        <div class="briefing-item">
-                            <strong>{title}</strong>
+                        <div class="briefing-item urgency-{urgency}{emphasized}">
+                            <strong>{title}{countdown}</strong>
                             <span>
                                 {deadline}
                                 {(" · " + detail) if detail else ""}

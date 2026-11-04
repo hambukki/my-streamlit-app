@@ -1,7 +1,9 @@
 """OpenAI, 음성 처리, 스마트 채팅과 일정 감지."""
 import hashlib
+import io
 import json
 import re
+import wave
 from datetime import datetime
 
 import streamlit as st
@@ -39,9 +41,10 @@ SYS_ROLE = """
 구체적인 회의 주제를 되묻지 말고 임시 제목 '회의'로 일정 등록을 제안합니다.
 시간이나 세부 내용을 모른다면 빈 상태로 둡니다.
 
-현재 연결된 데이터에는 실시간 장소 검색 기능이 없습니다.
-지역 맛집이나 특정 업체의 정보를 검증할 수 없다면
-실시간 확인이 불가능하다고 명확하게 설명합니다.
+웹검색이 켜졌을 때에만 외부 정보를 검색할 수 있습니다.
+검색되지 않은 가게, 인물, 주소, 날짜, 통계는 지어내지 않습니다.
+등록된 업무는 실제 업무 조회 결과로만 단정합니다.
+일정 등록 제안은 실제 저장과 다르며, 사용자가 확인하기 전에는 저장했다고 말하지 않습니다.
 
 모르는 정보는 추측해서 채우지 않습니다.
 확실한 정보와 불확실한 정보를 구분하여 답변합니다.
@@ -88,10 +91,11 @@ MEETING_SCHEMA = {
                     "properties": {
                         "task": {"type": "string"},
                         "deadline": {"type": "string"},
+                        "deadline_phrase": {"type": "string"},
                         "detail": {"type": "string"}
                     },
                     "required": [
-                        "task", "deadline", "detail"
+                        "task", "deadline", "deadline_phrase", "detail"
                     ],
                     "additionalProperties": False
                 }
@@ -109,7 +113,53 @@ MEETING_SCHEMA = {
 }
 
 
-def ask_llm(messages, schema=None, web_search=False):
+LOCAL_READ_TOOLS = [
+    {
+        "type": "function", "name": "list_registered_tasks",
+        "description": "실제로 저장된 현재 사용자의 업무/일정과 완료 상태를 조회합니다. 사실 확인에 사용하세요.",
+        "strict": True,
+        "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+    },
+    {
+        "type": "function", "name": "get_current_korea_time",
+        "description": "대한민국 현재 날짜와 시간을 실제 서버 시계에서 확인합니다.",
+        "strict": True,
+        "parameters": {"type": "object", "properties": {}, "required": [], "additionalProperties": False}
+    },
+]
+
+
+def _local_tool_result(name):
+    if name == "list_registered_tasks":
+        return json.dumps(load_tasks()[:100], ensure_ascii=False)
+    if name == "get_current_korea_time":
+        return json.dumps({"now_kst": now_kst().isoformat()}, ensure_ascii=False)
+    return json.dumps({"error": "알 수 없는 도구"}, ensure_ascii=False)
+
+
+def _verified_web_sources(response):
+    """API가 반환한 출처만 표시합니다. 모델이 임의로 작성한 URL은 제외합니다."""
+    sources = {}
+    for item in getattr(response, "output", []):
+        if getattr(item, "type", "") == "web_search_call":
+            action = getattr(item, "action", None)
+            for candidate in getattr(action, "sources", []) or []:
+                url = str(getattr(candidate, "url", "") or "")
+                if url.startswith("https://"):
+                    sources[url] = str(getattr(candidate, "title", "") or url)
+        if getattr(item, "type", "") != "message":
+            continue
+        for content in getattr(item, "content", []):
+            for ann in getattr(content, "annotations", []) or []:
+                if getattr(ann, "type", "") == "url_citation":
+                    url = str(getattr(ann, "url", ""))
+                    if url.startswith("https://"):
+                        sources[url] = str(getattr(ann, "title", "") or url)
+    return list(sources.items())[:6]
+
+
+def ask_llm(messages, schema=None, web_search=False, local_tools=False,
+            force_search=False, force_task_lookup=False):
     options = {
         "model": MODEL,
         "input": messages
@@ -118,13 +168,52 @@ def ask_llm(messages, schema=None, web_search=False):
     if schema is not None:
         options["text"] = {"format": schema}
 
+    available = []
     if web_search:
-        # 검색 도구 사용량은 별도로 청구될 수 있으므로 UI에서 사용자가 켭니다.
-        options["tools"] = [{"type": "web_search", "search_context_size": "low"}]
+        # 검색은 사용자 선택 시에만 활성화하며 호출 비용이 추가될 수 있습니다.
+        available.append({"type": "web_search", "search_context_size": "low"})
+        options["include"] = ["web_search_call.action.sources"]
+    if local_tools:
+        available.extend(LOCAL_READ_TOOLS)
+    if available:
+        options["tools"] = available
+    if force_search and web_search:
+        # 현재 정보 요청에는 검색을 반드시 시행합니다.
+        options["tool_choice"] = {"type": "web_search"}
+    elif force_task_lookup and local_tools:
+        options["tool_choice"] = {"type": "function", "name": "list_registered_tasks"}
 
-    result = get_openai_client().responses.create(**options)
+    input_items = list(messages)
+    result = None
+    for _ in range(4):
+        options["input"] = input_items
+        result = get_openai_client().responses.create(**options)
+        calls = [item for item in getattr(result, "output", [])
+                 if getattr(item, "type", "") == "function_call"]
+        if not calls:
+            break
+        # function_call과 추론을 포함한 응답 기록을 보존한 채 도구 결과를 전달합니다.
+        input_items.extend(result.output)
+        for call in calls:
+            input_items.append({
+                "type": "function_call_output", "call_id": call.call_id,
+                "output": _local_tool_result(call.name)
+            })
+        options.pop("tool_choice", None)
+    else:
+        raise RuntimeError("업무 조회 도구의 호출 횟수가 초과됐습니다.")
 
-    return result.output_text
+    answer = result.output_text or "현재 질문의 답변을 생성하지 못했습니다."
+    if web_search:
+        verified = _verified_web_sources(result)
+        if verified:
+            answer += "\n\n**검색 출처**\n" + "\n".join(
+                f"- [{title.replace('[', '').replace(']', '')}]({url.replace(')', '%29')})"
+                for url, title in verified
+            )
+        elif force_search:
+            answer = "검색 결과에서 확인 가능한 출처를 확보하지 못했습니다. 답변을 사실로 단정할 수 없습니다."
+    return answer
 
 
 def transcribe_audio(audio):
@@ -151,6 +240,71 @@ def make_speech(text):
         input=text[:4000]
     )
     return result.content
+
+
+def split_tts_text(text, max_chars=3500):
+    """API 음성 입력 한도를 넘기지 않고 텍스트 전체를 분할합니다."""
+    if max_chars < 1:
+        raise ValueError("최대 글자 수는 양수여야 합니다.")
+    remaining = str(text or "").strip()
+    parts = []
+    while remaining:
+        if len(remaining) <= max_chars:
+            parts.append(remaining)
+            break
+        cut = max(remaining.rfind("\n", 0, max_chars + 1),
+                  remaining.rfind(" ", 0, max_chars + 1))
+        if cut < max_chars // 2:
+            cut = max_chars
+        parts.append(remaining[:cut].strip())
+        remaining = remaining[cut:].lstrip()
+    return [part for part in parts if part]
+
+
+def make_full_speech(text):
+    """긴 회의 요약 전체를 WAV 조각으로 생성하고 이어서 재생할 수 있게 합칩니다."""
+    parts = split_tts_text(text)
+    if not parts:
+        raise ValueError("음성으로 변환할 요약 내용이 없습니다.")
+
+    merged = io.BytesIO()
+    original_params = None
+    with wave.open(merged, "wb") as target:
+        for part in parts:
+            response = get_openai_client().audio.speech.create(
+                model=TTS_MODEL, voice="alloy", input=part, response_format="wav"
+            )
+            with wave.open(io.BytesIO(response.content), "rb") as segment:
+                params = segment.getparams()
+                format_params = (params.nchannels, params.sampwidth,
+                                 params.framerate, params.comptype)
+                if original_params is None:
+                    original_params = format_params
+                    target.setparams(params)
+                elif original_params != format_params:
+                    raise ValueError("음성 분할 구간 간 WAV 형식이 일치하지 않습니다.")
+                target.writeframes(segment.readframes(segment.getnframes()))
+    return merged.getvalue()
+
+
+def needs_current_sources(question):
+    """최신 사실·실재 업체 등 웹 조회가 필요한 대표 질문을 구분합니다."""
+    return bool(re.search(
+        r"(최근|최신|실시간|영업|가격|요금|뉴스|날씨|주소|위치|환율|시세|주가|"
+        r"근처|주변|맛집|식당|레스토랑|카페|업체|병원|검색|웹서핑|찾아줘|추천)",
+        question
+    ))
+
+
+def asks_about_stored_tasks(question):
+    return bool(re.search(r"(내\s*일정|내\s*업무|등록된\s*일정|등록된\s*업무|"
+                          r"할\s*일|마감\s*업무|일정\s*목록|업무\s*목록)", question))
+
+
+def needs_external_verification(question):
+    return bool(re.search(r"(최신\s*뉴스|실시간|오늘\s*날씨|현재\s*가격|현재\s*요금|"
+                          r"맛집|식당|레스토랑|카페|매장|업체|병원|영업시간|주소\s*알려)",
+                          question))
 
 
 def detect_schedule(question):
@@ -281,7 +435,14 @@ def process_chat(question, uploaded_files=None):
                 "선택 기준을 정리해 드릴게요."
             )
 
+        elif not st.session_state.web_enabled and needs_external_verification(question):
+            answer = ("실시간 외부 정보를 확인할 검색 도구가 꺼져 있습니다. "
+                      "확인되지 않은 상호나 최신 정보를 만들어서 답하지 않겠습니다. "
+                      "정확한 조회가 필요하면 AI 채팅의 '웹검색'을 켜주세요.")
+
         else:
+            current_fact = needs_current_sources(question)
+            stored_task_question = asks_about_stored_tasks(question)
             answer = ask_llm([
                 {
                     "role": "system",
@@ -302,7 +463,10 @@ def process_chat(question, uploaded_files=None):
                     "role": "user",
                     "content": question
                 }
-            ], web_search=st.session_state.web_enabled)
+            ], web_search=st.session_state.web_enabled,
+               local_tools=True,
+               force_search=st.session_state.web_enabled and current_fact and not stored_task_question,
+               force_task_lookup=stored_task_question)
 
         set_conversation_title(question)
 
@@ -371,18 +535,6 @@ def send_voice_chat():
 
     except Exception as e:
         st.session_state.chat_error = f"음성 질문 처리 오류: {e}"
-
-
-def send_uploaded_voice_chat():
-    audio = st.session_state.get("voice_file_fallback")
-    if audio is None:
-        return
-    try:
-        transcript = transcribe_audio(audio)
-        st.session_state.voice_transcript = transcript
-        process_chat(transcript)
-    except Exception as exc:
-        st.session_state.chat_error = f"음성 파일 처리 오류: {exc}"
 
 
 def improve_prompt():

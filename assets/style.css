@@ -281,6 +281,12 @@ div[data-baseweb="textarea"] > div {
     font-size: 12px;
 }
 
+.briefing-item.urgency-urgent { background: #FFF0F0; border-left: 5px solid #D66C78; }
+.briefing-item.urgency-high   { background: #FFF4EB; border-left: 5px solid #E6A56F; }
+.briefing-item.urgency-normal { background: #F1FAF5; border-left: 5px solid #69AC91; }
+.briefing-item.urgency-low    { background: #EEF5FF; border-left: 5px solid #7EA9D5; }
+.briefing-item.deadline-soon { box-shadow: 0 0 0 1px #F3C4B9; }
+
 /* 캘린더 */
 
 .calendar-table {
@@ -307,7 +313,9 @@ div[data-baseweb="textarea"] > div {
 
     padding: 9px;
     color: #19332C;
+    position: relative;
 }
+.calendar-table td:hover { z-index: 4; }
 
 .calendar-table td.calendar-today {
     border: 2px solid #087568;
@@ -345,10 +353,32 @@ div[data-baseweb="textarea"] > div {
     font-size: 11px;
     line-height: 1.35;
 
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    position: relative;
 }
+.calendar-event-label { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.calendar-tooltip {
+    display: none;
+    position: absolute;
+    z-index: 30;
+    left: 0;
+    top: calc(100% + 3px);
+    width: min(280px, 70vw);
+    background: #FFFFFF;
+    border: 1px solid #A8C9BD;
+    border-radius: 8px;
+    padding: 10px 12px;
+    box-shadow: 0 8px 22px rgba(29, 63, 54, .16);
+    font-size: 12px;
+    color: #183D33;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    text-decoration: none;
+}
+.calendar-event:hover .calendar-tooltip,
+.calendar-event:focus-within .calendar-tooltip { display: block; }
+.calendar-event.urgency-urgent { background: #FFE6E8; border-left-color: #D66C78; color: #873542; }
+.calendar-event.urgency-high { background: #FFF0DF; border-left-color: #E6A56F; color: #80522B; }
+.calendar-event.urgency-low { background: #E9F2FF; border-left-color: #7EA9D5; color: #315F8E; }
 
 .calendar-event.done {
     background: #EFF2F0;
@@ -356,6 +386,7 @@ div[data-baseweb="textarea"] > div {
     color: #87978F;
     text-decoration: line-through;
 }
+.calendar-event.done { background: #EFF2F0 !important; border-left-color: #A4B1AA !important; color: #87978F !important; }
 
 .calendar-more {
     display: block;
