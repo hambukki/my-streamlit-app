@@ -1,0 +1,63 @@
+"""Streamlit 세션 상태를 각 브라우저에서 초기화."""
+import json
+
+import streamlit as st
+
+from .core import load_messages, get_setting, now_kst
+
+def initialize_session(active_chat_id):
+    previous_chat_id = st.session_state.get("_active_chat_id")
+    st.session_state["_active_chat_id"] = active_chat_id
+    defaults = {
+        "messages": load_messages(),
+        "chat_draft": "",
+        "chat_error": "",
+        "prompt_original": "",
+        "voice_reply": True,
+        "reply_audio": None,
+        "autoplay_reply": False,
+        "voice_transcript": "",
+        "meeting_result": None,
+        "meeting_version": 0,
+        "meeting_audio": None,
+        "meeting_autoplay": False,
+        "email_to": "",
+        "email_cc": "",
+        "email_subject": "",
+        "email_body": "",
+        "email_error": "",
+        "email_last_sent": "",
+        "translation_result": "",
+        "calendar_year": now_kst().year,
+        "calendar_month": now_kst().month,
+        "widget_clock": get_setting("widget_clock", "1") == "1",
+        "widget_weather": get_setting("widget_weather", "1") == "1",
+        "widget_briefing": get_setting("widget_briefing", "1") == "1",
+        "weather_city": get_setting("weather_city", "서울"),
+        "widget_calendar": get_setting("widget_calendar", "1") == "1",
+        "web_enabled": False,
+        "chat_upload_seq": 0,
+        "last_voice_hash": "",
+        "meeting_followup": []
+    }
+
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    if previous_chat_id != active_chat_id:
+        st.session_state["_active_chat_id"] = active_chat_id
+        st.session_state.messages = load_messages()
+        st.session_state.reply_audio = None
+        st.session_state.autoplay_reply = False
+        st.session_state.prompt_original = ""
+
+
+
+    try:
+        pending_event = json.loads(get_setting("pending_event", "null"))
+    except json.JSONDecodeError:
+        pending_event = None
+
+    if "pending_event" not in st.session_state:
+        st.session_state.pending_event = pending_event
