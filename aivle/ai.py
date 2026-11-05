@@ -159,7 +159,7 @@ def _verified_web_sources(response):
 
 
 def ask_llm(messages, schema=None, web_search=False, local_tools=False,
-            force_search=False, force_task_lookup=False):
+            force_search=False, force_task_lookup=False, max_output_tokens=None):
     options = {
         "model": MODEL,
         "input": messages
@@ -167,6 +167,8 @@ def ask_llm(messages, schema=None, web_search=False, local_tools=False,
 
     if schema is not None:
         options["text"] = {"format": schema}
+    if max_output_tokens is not None:
+        options["max_output_tokens"] = max_output_tokens
 
     available = []
     if web_search:

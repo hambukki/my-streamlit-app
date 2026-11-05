@@ -1,11 +1,53 @@
 """회의록 날짜 근거 검증. 근거가 없는 날짜는 등록하지 않습니다."""
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
 
 DATE_PATTERN = re.compile(r"(?<!\d)(20\d{2})\s*(?:[-./년]\s*)\s*(\d{1,2})\s*(?:[-./월]\s*)\s*(\d{1,2})\s*일?(?!\d)")
+MONTH_DAY_PATTERN = re.compile(r"(?<!\d)(\d{1,2})\s*월\s*(\d{1,2})\s*일?(?!\d)")
+SHORT_DATE_PATTERN = re.compile(r"(?<![\d./-])(\d{1,2})\s*[./-]\s*(\d{1,2})(?![\d./-])")
 RELATIVE_PATTERN = re.compile(r"(다음\s*주|이번\s*주|다음\s*달|이번\s*달|내일|모레|금주|차주|월말|주말|조속히|가능한\s*한\s*빨리)")
+
+
+def suggested_deadline_from_phrase(phrase, today):
+    """원문에 직접 적힌 날짜만 선택창 초기값으로 제안하며, 등록 확정은 하지 않습니다.
+
+    연도가 없는 11월 6일/11.6/11-6은 회의일 주변의 연도로만 표시합니다.
+    여러 날짜가 섞인 표현은 하나를 임의 선택하지 않습니다.
+    """
+    phrase = str(phrase or "")
+    explicit = set()
+    for match in DATE_PATTERN.finditer(phrase):
+        try:
+            explicit.add(date(*map(int, match.groups())))
+        except ValueError:
+            continue
+    if len(explicit) == 1:
+        return next(iter(explicit))
+    if len(explicit) > 1:
+        return None
+
+    # 연도를 포함한 표기(2026.11.6)를 11.6으로 잘못 다시 읽지 않습니다.
+    without_full_dates = DATE_PATTERN.sub(" ", phrase)
+    month_days = set()
+    for pattern in (MONTH_DAY_PATTERN, SHORT_DATE_PATTERN):
+        for match in pattern.finditer(without_full_dates):
+            month, day = map(int, match.groups())
+            month_days.add((month, day))
+    if len(month_days) != 1:
+        return None
+
+    month, day = next(iter(month_days))
+    try:
+        suggested = date(today.year, month, day)
+        # 연말에 언급된 내년 1월 등만 다음 연도로 제안합니다.
+        if suggested < today - timedelta(days=60):
+            suggested = date(today.year + 1, month, day)
+        return suggested
+    except ValueError:
+        # 2월 29일처럼 연도가 필요한 표현은 추측하지 않습니다.
+        return None
 
 
 def combine_meeting_sources(sources, selected=None):

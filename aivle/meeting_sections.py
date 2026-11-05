@@ -7,6 +7,7 @@ import streamlit as st
 from .ai import SYS_ROLE, ask_llm, make_full_speech
 from .core import add_task_if_missing, load_tasks, now_kst
 from .email import send_gmail
+from .meeting_logic import suggested_deadline_from_phrase
 from .widgets import URGENCY_LABELS, render_task_actions
 
 
@@ -93,13 +94,20 @@ def render_tasks(result, version, summary):
             kind = task.get("deadline_kind", "unverified" if task.get("deadline") else "none")
             phrase = task.get("deadline_phrase", "")
             if kind in ("relative", "unverified"):
-                st.warning(f"원문 기한: {phrase or '확인 불가'} · 정확한 날짜를 직접 선택해주세요.")
-                confirmed = st.checkbox("정확한 마감일을 직접 선택했습니다", value=False,
-                                        key=f"meeting_date_confirm_{version}_{i}")
-                chosen = st.date_input("마감일 직접 선택", value=now_kst().date(),
-                                       disabled=not confirmed,
+                hint = suggested_deadline_from_phrase(phrase, now_kst().date())
+                st.warning(f"원문 기한: {phrase or '확인 불가'}")
+                if hint is not None:
+                    st.caption(f"원문 월·일을 반영한 제안: {hint.isoformat()} · "
+                               "원문에 연도가 없다면 연도는 임시 제안입니다. 확인 후 등록해주세요.")
+                else:
+                    st.caption("원문에서 정확한 날짜를 확정할 수 없습니다. "
+                               "아래에서 날짜를 직접 선택해주세요. (선택 전에는 기한 미정)")
+                chosen = st.date_input("마감일 직접 선택", value=hint,
+                                       format="YYYY-MM-DD",
                                        key=f"meeting_pick_date_{version}_{i}")
-                deadline = chosen.isoformat() if confirmed else ""
+                confirmed = st.checkbox("원문과 마감일을 대조하고 날짜를 확인했습니다", value=False,
+                                        key=f"meeting_date_confirm_{version}_{i}")
+                deadline = chosen.isoformat() if confirmed and chosen else ""
             else:
                 confirmed = True
                 deadline = st.text_input("기한 (YYYY-MM-DD, 공란은 기한 미정)",
@@ -111,7 +119,9 @@ def render_tasks(result, version, summary):
             urgency = st.selectbox("업무 중요도·표시 색상", list(URGENCY_LABELS),
                                    format_func=lambda value: URGENCY_LABELS[value],
                                    key=f"meeting_urgency_{version}_{i}")
-            selected_tasks.append((selected, name, deadline, detail, kind, confirmed, urgency))
+            needs_confirmation = kind in ("relative", "unverified") and bool(phrase)
+            selected_tasks.append((selected, name, deadline, detail, needs_confirmation,
+                                   confirmed, urgency))
 
     with st.container(border=True):
         st.markdown("**일정에 추가하시겠습니까?**")
@@ -122,10 +132,10 @@ def render_tasks(result, version, summary):
             else:
                 added = 0
                 missing_date = []
-                for selected, name, deadline, detail, kind, confirmed, urgency in selected_tasks:
+                for selected, name, deadline, detail, needs_confirmation, confirmed, urgency in selected_tasks:
                     if not selected or not name.strip():
                         continue
-                    if kind == "relative" and not confirmed:
+                    if needs_confirmation and (not confirmed or not deadline):
                         missing_date.append(name)
                         continue
                     try:
@@ -136,7 +146,8 @@ def render_tasks(result, version, summary):
                     except ValueError:
                         st.error(f"'{name}'의 날짜 형식을 확인해주세요.")
                 if missing_date:
-                    st.warning("정확한 마감일이 필요한 업무: " + ", ".join(missing_date))
+                    st.warning("원문 기한을 확인하고 마감일을 선택해야 등록되는 업무: "
+                               + ", ".join(missing_date))
                 st.success(f"{added}개 업무를 추가했습니다.")
 
         if reviewed:
