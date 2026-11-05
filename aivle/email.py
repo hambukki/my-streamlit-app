@@ -12,7 +12,8 @@ from email.message import EmailMessage
 
 import streamlit as st
 
-from .core import connect_db, get_sid, now_kst
+from .core import connect_db, get_sid, now_kst, save_setting
+from .email_drafts import persist_draft
 from .ai import ask_llm
 
 
@@ -55,6 +56,7 @@ def make_email_draft():
 
         st.session_state.email_body = answer
         st.session_state.email_error = ""
+        persist_draft(st.session_state, save_setting)
 
     except Exception as e:
         st.session_state.email_error = str(e)

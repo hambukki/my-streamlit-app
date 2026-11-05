@@ -1,4 +1,7 @@
 """홈 대시보드와 오늘의 업무 브리핑."""
+import base64
+from functools import lru_cache
+from pathlib import Path
 from datetime import date, timedelta
 
 import streamlit as st
@@ -6,6 +9,15 @@ from aivle.core import (now_kst, load_tasks, save_setting, load_task_presets,
                         create_task_from_preset, delete_task_preset, set_task_done)
 from aivle.widgets import (task_editor, task_delete_dialog, task_preset_editor, live_korea_clock,
                            CITIES, get_weather, weather_description, render_mini_calendar)
+
+
+@lru_cache(maxsize=1)
+def hero_mascot_uri():
+    """제공된 실제 캐릭터 PNG를 앱 내부에 포함해 외부 이미지 주소 없이 표시."""
+    image_path = Path(__file__).resolve().parents[2] / "assets" / "aivle_hero.png"
+    if not image_path.is_file():
+        return ""
+    return "data:image/png;base64," + base64.b64encode(image_path.read_bytes()).decode("ascii")
 
 
 def filter_completed_tasks(tasks, period="이번 주", reference=None, keyword=""):
@@ -107,14 +119,18 @@ def render():
                                                weight.get(item.get("urgency"), 2),
                                                item["time"] or ""))
 
+    mascot_uri = hero_mascot_uri()
+    mascot_html = (f'<img class="aivle-hero-mascot" src="{mascot_uri}" '
+                   'alt="에이블 AI 개인비서 마스코트" />' if mascot_uri else "")
     st.markdown(
-        """
+        f"""
         <div class="aivle-hero">
-            <h2>좋은 하루예요, 김대리님.</h2>
-            <p>
-                오늘 처리할 업무부터 다가오는 일정까지,
-                에이블이 함께 확인해 드릴게요.
-            </p>
+            <div class="aivle-hero-copy">
+                <h2>좋은 하루예요, 김대리님.</h2>
+                <p>오늘 처리할 업무부터 다가오는 일정까지,<br>
+                   에이블이 함께 확인해 드릴게요.</p>
+            </div>
+            {mascot_html}
         </div>
         """,
         unsafe_allow_html=True

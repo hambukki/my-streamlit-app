@@ -25,7 +25,7 @@ from aivle.core import (get_sid, init_db, init_scheduled_email_table,
                         migrate_task_status, choose_conversation)
 from aivle.session import initialize_session
 from aivle.email import start_scheduled_email_worker
-from aivle.ai import MODEL
+from aivle.sidebar import render_sidebar_upcoming
 from aivle.pages import home, chat, meeting, email, calendar, translation
 
 get_sid()
@@ -64,14 +64,6 @@ with st.sidebar:
             st.query_params["view"] = page_id
             st.rerun()
     st.divider()
-    badge_path = Path(__file__).resolve().parent / "assets" / "employee_badge.png"
-    if badge_path.exists():
-        st.markdown('<div class="employee-card-heading">AIVLE · STAFF PROFILE</div>',
-                    unsafe_allow_html=True)
-        st.image(str(badge_path), use_container_width=True)
-        st.markdown('<div class="employee-card-name">김대리 <span>· 임직원</span></div>',
-                    unsafe_allow_html=True)
-    st.caption("김대리 전담 비서")
-    st.caption(f"MODEL · {MODEL}")
+    render_sidebar_upcoming()
 
 PAGES[page][2]()

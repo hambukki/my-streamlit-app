@@ -4,6 +4,7 @@ import json
 import streamlit as st
 
 from .core import load_messages, get_setting, save_setting, now_kst
+from .email_drafts import parse_draft, SETTING as EMAIL_DRAFT_SETTING
 
 def initialize_session(active_chat_id):
     previous_chat_id = st.session_state.get("_active_chat_id")
@@ -16,6 +17,7 @@ def initialize_session(active_chat_id):
             save_setting(widget_name, "1")
             st.session_state[widget_name] = True
         save_setting("widget_defaults_v5", "ready")
+    saved_email = parse_draft(get_setting(EMAIL_DRAFT_SETTING, "{}"))
     defaults = {
         "messages": load_messages(),
         "chat_draft": "",
@@ -36,10 +38,10 @@ def initialize_session(active_chat_id):
         "meeting_audio_review": "",
         "meeting_recording_hash": "",
         "meeting_recording_review": "",
-        "email_to": "",
-        "email_cc": "",
-        "email_subject": "",
-        "email_body": "",
+        "email_to": saved_email["email_to"],
+        "email_cc": saved_email["email_cc"],
+        "email_subject": saved_email["email_subject"],
+        "email_body": saved_email["email_body"],
         "email_error": "",
         "email_last_sent": "",
         "translation_result": "",

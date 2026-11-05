@@ -261,10 +261,27 @@ div[data-baseweb="textarea"] > div {
 .chat-empty-state strong {font-size: 16px;color: #275747;}
 .chat-empty-state span {font-size: 13px;color: #607A6F;}
 
-.employee-card-heading {font-size: 10px;letter-spacing: 2px;font-weight: 800;color:#597568;margin:8px 0;}
-.employee-card-name {font-size: 16px;color:#155846;font-weight:800;margin:6px 0 3px;}
-.employee-card-name span {color:#698578;font-size:12px;font-weight:500;}
-section[data-testid="stSidebar"] img {border-radius: 12px;object-fit: cover;}
+/* 6차 QA: 직원증 대신 모든 탭과 실시간 연동되는 좌측 예정 업무 띠. */
+.sidebar-upcoming-head {display:flex;align-items:baseline;justify-content:space-between;
+    color:#165545;margin:8px 0 12px;gap:6px;}
+.sidebar-upcoming-head span {font-size:14px;font-weight:850;}
+.sidebar-upcoming-head small {font-size:9px;letter-spacing:1.4px;color:#708C7E;}
+.sidebar-schedule-strip {border-radius:9px;border-left:4px solid #6AAE91;
+    background:#F8FCFA;padding:9px 10px 8px;margin:5px 0 2px;
+    display:flex;flex-direction:column;gap:3px;cursor:help;}
+.sidebar-schedule-strip.urgency-urgent {border-left-color:#D66C78;background:#FFF1F2;}
+.sidebar-schedule-strip.urgency-high {border-left-color:#E6A56F;background:#FFF5EC;}
+.sidebar-schedule-strip.urgency-low {border-left-color:#7EA9D5;background:#EDF5FF;}
+.sidebar-schedule-strip .sidebar-strip-date {font-size:10px;letter-spacing:.2px;color:#557267;}
+.sidebar-schedule-strip strong {font-size:12px;color:#204D3E;white-space:nowrap;
+    text-overflow:ellipsis;overflow:hidden;display:block;max-width:100%;}
+section[data-testid="stSidebar"] [class*="st-key-sidebar_schedule_"] .stButton button {
+    min-height:28px!important;height:28px;padding:2px 5px!important;
+    border:1px solid #BFD8CC!important;border-radius:7px;
+    font-size:11px!important;justify-content:center!important;
+    background:#FFFFFF!important;color:#245D4A!important;}
+section[data-testid="stSidebar"] [class*="st-key-sidebar_schedule_"] .stButton button:hover {
+    background:#D9EFE4!important;border-color:#79B49C!important;}
 
 [data-testid="stChatMessage"] p,
 [data-testid="stChatMessage"] li,
@@ -277,8 +294,8 @@ section[data-testid="stSidebar"] img {border-radius: 12px;object-fit: cover;}
 .aivle-hero {
     position: relative;
     overflow: hidden;
-    min-height: 210px;
-    padding: 42px;
+    min-height: 226px;
+    padding: 42px 320px 42px 42px;
     border-radius: 21px;
 
     background:
@@ -292,20 +309,25 @@ section[data-testid="stSidebar"] img {border-radius: 12px;object-fit: cover;}
     margin-bottom: 24px;
 }
 
+.aivle-hero-copy {position:relative;z-index:2;}
+.aivle-hero-mascot {position:absolute;z-index:1;pointer-events:none;
+    width:310px;height:310px;object-fit:contain;object-position:top right;
+    right:15px;top:-12px;filter:drop-shadow(0 7px 12px rgba(5,101,81,.13));}
+
 .aivle-hero h2 {
     color: #124C3E !important;
     font-size: 30px;
     font-weight: 800;
     position: relative;
     z-index: 2;
-    max-width: 70%;
+    max-width: 100%;
 }
 
 .aivle-hero p {
     color: #315F50 !important;
     position: relative;
     z-index: 2;
-    max-width: 65%;
+    max-width: 100%;
 }
 
 /* 업무 브리핑 */
@@ -481,8 +503,11 @@ hr {
 @media (max-width: 800px) {
 
     .aivle-hero {
-        padding: 26px;
+        padding: 25px 145px 25px 22px;
+        min-height: 180px;
     }
+
+    .aivle-hero-mascot {width:170px;height:170px;right:-18px;top:13px;}
 
     .aivle-hero h2 {
         font-size: 23px;
