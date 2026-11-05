@@ -63,7 +63,7 @@ def render():
 
     # 음성 답변은 채팅 메시지 바로 아래에만 표시합니다.
     if st.session_state.reply_audio:
-        st.caption("에이블의 음성 답변")
+        st.caption("에이블의 한국어 음성 답변 · 합성 음성")
         st.audio(
             bytes(st.session_state.reply_audio),
             format="audio/mpeg",

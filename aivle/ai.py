@@ -13,10 +13,18 @@ from .core import (now_kst, get_active_chat_id, load_tasks, load_messages,
                    save_message, set_conversation_title, save_chat_attachment,
                    recent_chat_attachments, save_setting)
 from .documents import extract_document
+from .voice_language import korean_speech_input, require_korean_reply
 
 MODEL = "gpt-4o-mini"
 STT_MODEL = "whisper-1"
-TTS_MODEL = "tts-1"
+TTS_MODEL = "gpt-4o-mini-tts"
+TTS_VOICE = "alloy"
+KOREAN_TTS_INSTRUCTIONS = (
+    "한국어 업무 비서처럼 자연스럽고 또렷한 표준 한국어로만 말하세요. "
+    "문장 전체를 영어·일본어·중국어·기타 언어로 바꾸어 말하지 마세요. "
+    "URL, 영문 제품명, 영어 약어와 스펠링만 원문대로 발음할 수 있습니다. "
+    "입력 문장을 번역하거나 내용을 추가하지 말고 한국어 억양으로 읽으세요."
+)
 
 @st.cache_resource
 def get_openai_client():
@@ -26,6 +34,9 @@ def get_openai_client():
 SYS_ROLE = """
 당신은 김대리의 전담 AI 개인비서 '에이블'입니다.
 항상 정확하고 친절하게 한국어로 답변합니다.
+질문이 음성으로 들어오거나 참고 자료에 외국어가 있어도 설명과 안내는 반드시 한국어로만 작성합니다.
+영문 링크, 제품명, 코드, 약어, 철자를 인용할 때에만 원래 영어 표기를 유지할 수 있습니다.
+사용자가 별도로 번역을 요청하지 않는 한 외국어 문장으로 대답하지 않습니다.
 
 김대리의 질문과 업무를 이해하고,
 일정, 회의, 이메일 등 실제 업무 수행을 지원합니다.
@@ -218,7 +229,7 @@ def ask_llm(messages, schema=None, web_search=False, local_tools=False,
     return answer
 
 
-def transcribe_audio(audio):
+def transcribe_audio(audio, language=None):
     data = audio.getvalue()
 
     if len(data) > 25 * 1024 * 1024:
@@ -227,19 +238,21 @@ def transcribe_audio(audio):
     name = getattr(audio, "name", "recording.wav")
     mime = getattr(audio, "type", None) or "audio/wav"
 
-    result = get_openai_client().audio.transcriptions.create(
-        model=STT_MODEL,
-        file=(name, data, mime)
-    )
+    params = {"model": STT_MODEL, "file": (name, data, mime)}
+    if language:
+        params["language"] = language
+    result = get_openai_client().audio.transcriptions.create(**params)
 
     return result.text
 
 
 def make_speech(text):
+    spoken = korean_speech_input(text)
     result = get_openai_client().audio.speech.create(
         model=TTS_MODEL,
-        voice="alloy",
-        input=text[:4000]
+        voice=TTS_VOICE,
+        input=spoken[:4000],
+        instructions=KOREAN_TTS_INSTRUCTIONS
     )
     return result.content
 
@@ -265,7 +278,7 @@ def split_tts_text(text, max_chars=3500):
 
 def make_full_speech(text):
     """긴 회의 요약 전체를 WAV 조각으로 생성하고 이어서 재생할 수 있게 합칩니다."""
-    parts = split_tts_text(text)
+    parts = split_tts_text(korean_speech_input(text))
     if not parts:
         raise ValueError("음성으로 변환할 요약 내용이 없습니다.")
 
@@ -274,7 +287,8 @@ def make_full_speech(text):
     with wave.open(merged, "wb") as target:
         for part in parts:
             response = get_openai_client().audio.speech.create(
-                model=TTS_MODEL, voice="alloy", input=part, response_format="wav"
+                model=TTS_MODEL, voice=TTS_VOICE, input=part,
+                instructions=KOREAN_TTS_INSTRUCTIONS, response_format="wav"
             )
             with wave.open(io.BytesIO(response.content), "rb") as segment:
                 params = segment.getparams()
@@ -481,6 +495,16 @@ def process_chat(question, uploaded_files=None):
                force_search=st.session_state.web_enabled and current_fact and not stored_task_question,
                force_task_lookup=stored_task_question)
 
+        # 다국어 자료를 참조했더라도 사용자에게 보여 주고 읽어 줄 답변은 한국어로 보정합니다.
+        answer = require_korean_reply(answer, lambda foreign: ask_llm([
+            {"role": "system", "content": (
+                "다음 업무 비서 답변을 자연스러운 한국어로 다시 작성하세요. "
+                "영문 링크 URL, 코드, 영문 철자, 숫자, 업무명과 날짜는 그대로 보존하세요. "
+                "사실을 더하거나 빼지 말고, 설명문은 반드시 한국어 문장으로만 출력하세요."
+            )},
+            {"role": "user", "content": foreign}
+        ], max_output_tokens=2500))
+
         set_conversation_title(question)
 
         save_message("user", question)
@@ -542,7 +566,7 @@ def send_voice_chat():
 
     try:
         with st.spinner("음성 질문을 인식하고 답변을 준비하고 있습니다..."):
-            transcript = transcribe_audio(audio)
+            transcript = transcribe_audio(audio, language="ko")
             st.session_state.voice_transcript = transcript
 
             # 별도의 질문 보내기 버튼 없이 전송
