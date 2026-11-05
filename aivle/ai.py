@@ -280,10 +280,21 @@ def make_full_speech(text):
                                  params.framerate, params.comptype)
                 if original_params is None:
                     original_params = format_params
-                    target.setparams(params)
+                    # OpenAI의 스트리밍 WAV는 헤더의 프레임 수에
+                    # 0xFFFFFFFF(미확정 길이)를 넣을 수 있습니다.
+                    # 이 값을 출력 파일에 그대로 복사하면 struct.pack('L')이
+                    # 32비트 크기 제한 오류를 발생시킵니다.
+                    target.setparams((params.nchannels, params.sampwidth,
+                                      params.framerate, 0,
+                                      params.comptype, params.compname))
                 elif original_params != format_params:
                     raise ValueError("음성 분할 구간 간 WAV 형식이 일치하지 않습니다.")
-                target.writeframes(segment.readframes(segment.getnframes()))
+                # 헤더에 담긴 길이를 신뢰하지 않고 실제 PCM 데이터만 이어 붙입니다.
+                while True:
+                    frames = segment.readframes(32768)
+                    if not frames:
+                        break
+                    target.writeframesraw(frames)
     return merged.getvalue()
 
 
@@ -509,7 +520,8 @@ def process_chat(question, uploaded_files=None):
 
 def send_text_chat():
     uploads = st.session_state.get(f"chat_files_{st.session_state.chat_upload_seq}", [])
-    process_chat(st.session_state.chat_draft, uploads)
+    with st.spinner("에이블이 질문을 분석하고 답변을 작성하는 중입니다..."):
+        process_chat(st.session_state.chat_draft, uploads)
     if not st.session_state.chat_error:
         st.session_state.chat_upload_seq += 1
 
@@ -527,11 +539,12 @@ def send_voice_chat():
     st.session_state.last_voice_hash = audio_hash
 
     try:
-        transcript = transcribe_audio(audio)
-        st.session_state.voice_transcript = transcript
+        with st.spinner("음성 질문을 인식하고 답변을 준비하고 있습니다..."):
+            transcript = transcribe_audio(audio)
+            st.session_state.voice_transcript = transcript
 
-        # 별도의 질문 보내기 버튼 없이 전송
-        process_chat(transcript)
+            # 별도의 질문 보내기 버튼 없이 전송
+            process_chat(transcript)
 
     except Exception as e:
         st.session_state.chat_error = f"음성 질문 처리 오류: {e}"
@@ -547,7 +560,8 @@ def improve_prompt():
         return
 
     try:
-        improved = ask_llm([
+        with st.spinner("질문을 분석해 프롬프트를 개선하고 있습니다..."):
+            improved = ask_llm([
             {
                 "role": "system",
                 "content": """
@@ -583,7 +597,7 @@ def improve_prompt():
                 """
             },
             {"role": "user", "content": original}
-        ])
+            ])
 
         improved = improved.strip()
         improved = re.sub(r"(?m)^\s*#{1,6}\s*", "", improved)

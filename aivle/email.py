@@ -32,7 +32,8 @@ def make_email_draft():
         return
 
     try:
-        answer = ask_llm([
+        with st.spinner("이메일 초안을 작성하고 있습니다..."):
+            answer = ask_llm([
             {
                 "role": "system",
                 "content": (
@@ -50,7 +51,7 @@ def make_email_draft():
                     f"참고 내용: {st.session_state.email_body}"
                 )
             }
-        ])
+            ])
 
         st.session_state.email_body = answer
         st.session_state.email_error = ""

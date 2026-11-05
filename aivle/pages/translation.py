@@ -60,7 +60,8 @@ def render():
                     else "한국어"
                 )
 
-                answer = ask_llm([
+                with st.spinner("문장을 번역하고 있습니다..."):
+                    answer = ask_llm([
                     {
                         "role": "system",
                         "content": (
@@ -73,7 +74,7 @@ def render():
                         "role": "user",
                         "content": combined
                     }
-                ])
+                    ])
 
                 st.session_state.translation_result = answer
 

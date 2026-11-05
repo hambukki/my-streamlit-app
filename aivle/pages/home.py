@@ -3,8 +3,8 @@ from datetime import date
 
 import streamlit as st
 from aivle.core import (now_kst, load_tasks, save_setting, load_task_presets,
-                        create_task_from_preset, delete_task_preset)
-from aivle.widgets import (task_editor, task_preset_editor, render_task_actions, live_korea_clock,
+                        create_task_from_preset, delete_task_preset, set_task_done)
+from aivle.widgets import (task_editor, task_delete_dialog, task_preset_editor, live_korea_clock,
                            CITIES, get_weather, weather_description, render_mini_calendar)
 
 
@@ -85,9 +85,13 @@ def render():
 
     if st.session_state.widget_briefing:
 
-        st.subheader("오늘의 업무 브리핑")
-        if st.button("업무 추가", icon=":material/add:", key="home_task_add"):
-            task_editor()
+        brief_title, brief_add = st.columns([5, 1.3], vertical_alignment="center")
+        with brief_title:
+            st.subheader("오늘의 업무 브리핑")
+        with brief_add:
+            if st.button("업무 추가", icon=":material/add:", key="home_task_add",
+                         type="primary", use_container_width=True):
+                task_editor()
 
         with st.expander("상시 업무 프리셋 · 자주 하는 업무 바로 등록", expanded=False):
             st.caption("반복적으로 수행하는 업무를 저장해두고 필요할 때 오늘 일정으로 추가합니다.")
@@ -192,20 +196,33 @@ def render():
                             countdown = " · ⏳ " + ("오늘 마감" if days_left == 0 else f"D-{days_left}")
                     emphasized = " deadline-soon" if countdown else ""
 
-                    st.markdown(
-                        f"""
-                        <div class="briefing-item urgency-{urgency}{emphasized}">
-                            <strong>{title}{countdown}</strong>
-                            <span>
-                                {deadline}
-                                {(" · " + detail) if detail else ""}
-                            </span>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                    with st.expander("업무 관리", expanded=False):
-                        render_task_actions(task, "home")
+                    card_key = f"briefing_{urgency}_{task['id'].replace('-', '_')}"
+                    if emphasized:
+                        card_key += "_soon"
+                    with st.container(border=True, key=card_key):
+                        description, edit_col, delete_col, done_col = st.columns(
+                            [7, 0.8, 0.8, 0.8], vertical_alignment="center", gap="small"
+                        )
+                        with description:
+                            st.markdown(
+                                f'<div class="briefing-card-content">'
+                                f'<strong>{title}{countdown}</strong>'
+                                f'<span>{deadline}{(" · " + detail) if detail else ""}</span>'
+                                f'</div>', unsafe_allow_html=True
+                            )
+                        with edit_col:
+                            if st.button("✏️", key=f"home_edit_{task['id']}",
+                                         help="업무 편집", use_container_width=True):
+                                task_editor(task["id"])
+                        with delete_col:
+                            if st.button("🗑️", key=f"home_del_{task['id']}",
+                                         help="업무 삭제", use_container_width=True):
+                                task_delete_dialog(task["id"])
+                        with done_col:
+                            if st.button("✓", key=f"home_done_{task['id']}",
+                                         help="업무 완료", use_container_width=True):
+                                set_task_done(task["id"], True)
+                                st.rerun()
 
     left, right = st.columns(2)
 

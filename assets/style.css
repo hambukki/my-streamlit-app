@@ -287,6 +287,20 @@ div[data-baseweb="textarea"] > div {
 .briefing-item.urgency-low    { background: #EEF5FF; border-left: 5px solid #7EA9D5; }
 .briefing-item.deadline-soon { box-shadow: 0 0 0 1px #F3C4B9; }
 
+/* 홈 업무 카드: 업무 정보와 편집/삭제/완료 버튼을 같은 카드 안에 배치 */
+.briefing-card-content { display: flex; flex-direction: column; gap: 5px; min-width: 0; overflow-wrap: anywhere; }
+.briefing-card-content strong { font-size: 14px; line-height: 1.5; color: #19332C !important; }
+.briefing-card-content span { font-size: 12px; color: #48665A; line-height: 1.5; }
+[class*="st-key-briefing_urgent_"] { background: #FFF0F0 !important; border-left: 5px solid #D66C78 !important; }
+[class*="st-key-briefing_high_"] { background: #FFF4EB !important; border-left: 5px solid #E6A56F !important; }
+[class*="st-key-briefing_normal_"] { background: #F1FAF5 !important; border-left: 5px solid #69AC91 !important; }
+[class*="st-key-briefing_low_"] { background: #EEF5FF !important; border-left: 5px solid #7EA9D5 !important; }
+[class*="st-key-briefing_"][class*="_soon"] { box-shadow: 0 0 0 1px #F3C4B9 !important; }
+[class*="st-key-briefing_"] button { min-height: 37px; padding: 4px 6px !important; }
+
+/* 로딩: Streamlit 기본 달리기 상태 아이콘 대신 st.spinner 원형 표시 사용 */
+[data-testid="stStatusWidget"] { display: none !important; }
+
 /* 캘린더 */
 
 .calendar-table {

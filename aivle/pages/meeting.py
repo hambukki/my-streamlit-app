@@ -1,15 +1,13 @@
 """회의록 입력·요약·메일 공유·후속 질문."""
 import hashlib
 import json
-from datetime import datetime
 
 import streamlit as st
-from aivle.core import (get_setting, save_setting, add_task_if_missing, load_tasks, now_kst)
-from aivle.ai import SYS_ROLE, MEETING_SCHEMA, ask_llm, transcribe_audio, make_full_speech
+from aivle.core import get_setting, save_setting
+from aivle.ai import SYS_ROLE, MEETING_SCHEMA, ask_llm, transcribe_audio
 from aivle.documents import decode_text_file
-from aivle.email import send_gmail
 from aivle.meeting_logic import verify_meeting_tasks, combine_meeting_sources
-from aivle.widgets import render_task_actions, URGENCY_LABELS
+from aivle.meeting_sections import render_summary, render_tasks
 
 
 def _audio_mime(name):
@@ -122,8 +120,9 @@ def render():
             if not source.strip():
                 st.warning("회의 내용을 입력해주세요.")
             else:
-                response = ask_llm(
-                    [
+                with st.spinner("회의 자료를 종합해 요약하고 있습니다..."):
+                    response = ask_llm(
+                        [
                         {
                             "role": "system",
                             "content": (
@@ -147,9 +146,9 @@ def render():
                             "role": "user",
                             "content": source
                         }
-                    ],
-                    schema=MEETING_SCHEMA
-                )
+                        ],
+                        schema=MEETING_SCHEMA
+                    )
 
                 result = verify_meeting_tasks(json.loads(response), source)
                 st.session_state.meeting_result = result
@@ -179,194 +178,11 @@ def render():
 
     if result:
         version = st.session_state.meeting_version
-
-        with st.container(border=True):
-            st.subheader("③ 회의 요약")
-            summary = st.text_area(
-                "요약 내용 확인",
-                value=result["summary"], height=150,
-                key=f"meeting_summary_{version}"
-            )
-            st.markdown("**주요 결정사항**")
-            for decision in result["decisions"]:
-                st.write("• " + decision)
-
-        # 회의 요약 바로 아래에 음성 답변을 배치합니다.
-        with st.container(border=True):
-            st.markdown("**요약 음성 듣기**")
-            if st.button("요약 음성 생성", key="meeting_make_tts"):
-                try:
-                    st.session_state.meeting_audio = make_full_speech(summary)
-                    st.session_state.meeting_autoplay = True
-                except Exception as exc:
-                    st.error(f"음성 생성 API 처리 실패: {exc}")
-            if st.session_state.meeting_audio:
-                st.audio(bytes(st.session_state.meeting_audio), format="audio/wav",
-                         autoplay=st.session_state.meeting_autoplay)
-                st.session_state.meeting_autoplay = False
-                st.download_button("요약 전체 음성 WAV 다운로드",
-                                   data=st.session_state.meeting_audio,
-                                   file_name="meeting_summary.wav", mime="audio/wav",
-                                   key="meeting_tts_download")
-            else:
-                st.caption("긴 요약도 누락되지 않도록 여러 음성 구간을 생성하여 하나의 WAV로 연결합니다.")
-
-        st.subheader("김대리 담당 업무")
-
-        selected_tasks = []
-
-        if not result["kim_tasks"]:
-            st.info("김대리에게 명시적으로 배정된 업무는 없습니다.")
-
-        for i, task in enumerate(result["kim_tasks"]):
-            with st.container(border=True):
-                selected = st.checkbox(
-                    f"업무 {i+1}을 일정에 추가",
-                    value=True,
-                    key=f"meeting_select_{version}_{i}"
-                )
-
-                name = st.text_input(
-                    "업무명",
-                    value=task["task"],
-                    key=f"meeting_name_{version}_{i}"
-                )
-
-                kind = task.get("deadline_kind", "unverified" if task.get("deadline") else "none")
-                phrase = task.get("deadline_phrase", "")
-                if kind in ("relative", "unverified"):
-                    st.warning(
-                        f"원문 기한: {phrase or '확인 불가'} · 정확한 날짜를 확인해주세요. "
-                        "원문에서 날짜가 검증되지 않아 자동 지정하지 않았습니다."
-                    )
-                    pick_deadline = st.checkbox(
-                        "정확한 마감일을 직접 선택했습니다",
-                        value=False, key=f"meeting_date_confirm_{version}_{i}"
-                    )
-                    picked = st.date_input(
-                        "마감일 직접 선택", value=now_kst().date(),
-                        disabled=not pick_deadline, key=f"meeting_pick_date_{version}_{i}"
-                    )
-                    date = picked.isoformat() if pick_deadline else ""
-                else:
-                    pick_deadline = True
-                    date = st.text_input(
-                        "기한 (YYYY-MM-DD, 공란은 기한 미정)",
-                        value=task["deadline"],
-                        key=f"meeting_date_{version}_{i}"
-                    )
-
-                detail = st.text_area(
-                    "업무 설명",
-                    value=task["detail"],
-                    key=f"meeting_detail_{version}_{i}"
-                )
-
-                urgency = st.selectbox(
-                    "업무 중요도·표시 색상", list(URGENCY_LABELS),
-                    format_func=lambda value: URGENCY_LABELS[value],
-                    key=f"meeting_urgency_{version}_{i}"
-                )
-
-                selected_tasks.append(
-                    (selected, name, date, detail, kind, pick_deadline, urgency)
-                )
-
-        for question in result["questions"]:
-            st.warning(question)
-
-        st.subheader("일정에 추가하시겠습니까?")
-        st.caption(
-            "김대리의 담당 업무만 선택하여 내 일정에 등록합니다."
-        )
-
-        reviewed = st.checkbox(
-            "회의 내용과 업무를 검토했습니다."
-        )
-
-        if st.button("선택한 업무를 내 일정에 추가", type="primary"):
-            if not reviewed:
-                st.warning("검토 여부를 확인해주세요.")
-            else:
-                added = 0
-                missing_date = []
-                for selected, name, date, detail, kind, confirmed_date, urgency in selected_tasks:
-                    if not selected or not name.strip():
-                        continue
-
-                    if kind == "relative" and not confirmed_date:
-                        missing_date.append(name)
-                        continue
-
-                    try:
-                        if date:
-                            datetime.strptime(date, "%Y-%m-%d")
-
-                        if add_task_if_missing(name, date, "", detail, urgency):
-                            added += 1
-                    except ValueError:
-                        st.error(
-                            f"'{name}'의 날짜 형식을 확인해주세요."
-                        )
-
-                if missing_date:
-                    st.warning("다음 업무는 정확한 마감일을 선택해야 등록할 수 있습니다: "
-                               + ", ".join(missing_date))
-                st.success(f"{added}개 업무를 추가했습니다.")
-
-        # 회의 내용을 검토한 뒤 앱 내에서 바로 이메일을 보낼 수 있습니다.
-        if reviewed:
-            with st.expander("검토 완료 · 회의록 이메일 전송", expanded=False):
-                st.caption("검토한 요약과 김대리 담당 업무를 이메일로 공유합니다.")
-                with st.form("meeting_send_form"):
-                    recipient = st.text_input("받는 사람 이메일 *", key="meeting_share_to")
-                    cc = st.text_input("참조 (선택)", key="meeting_share_cc")
-                    subject = st.text_input("메일 제목", value="[회의록] 주요 내용 및 후속 업무")
-                    email_body = st.text_area(
-                        "전송할 회의록 본문",
-                        value=(summary + "\n\n[결정사항]\n" +
-                               "\n".join(f"- {x}" for x in result["decisions"]) +
-                               "\n\n[김대리 담당 업무]\n" +
-                               "\n".join(f"- {t['task']} ({t['deadline'] or '기한 미정'})"
-                                         for t in result["kim_tasks"])),
-                        height=200
-                    )
-                    send_mail = st.form_submit_button("검토한 회의록 이메일 전송", type="primary")
-                if send_mail:
-                    try:
-                        send_gmail(recipient.strip(), cc.strip(), subject.strip(), email_body)
-                        st.success("회의록 이메일을 전송했습니다.")
-                    except Exception as exc:
-                        st.error(f"이메일 전송 실패: {exc}")
-
-        st.subheader("회의록에 관해 추가 질문하기")
-        st.caption("현재 요약된 회의의 사실관계만 바탕으로 후속 질문에 답합니다.")
-        for item in st.session_state.meeting_followup:
-            with st.chat_message(item["role"]):
-                st.write(item["content"])
-        with st.form("meeting_followup_form", clear_on_submit=True):
-            question = st.text_input("회의록 질문", placeholder="예: 누가 강사 섭외를 맡았나요?")
-            ask = st.form_submit_button("질문하기")
-        if ask and question.strip():
-            try:
-                answer = ask_llm([
-                    {"role": "system", "content": (
-                        SYS_ROLE + "\n아래 회의록 JSON만을 근거로 답하세요. "
-                        "기록에 없는 정보는 확인되지 않았다고 답하세요.\n" +
-                        json.dumps(result, ensure_ascii=False))},
-                    *st.session_state.meeting_followup[-8:],
-                    {"role": "user", "content": question}
-                ])
-                st.session_state.meeting_followup.extend([
-                    {"role": "user", "content": question},
-                    {"role": "assistant", "content": answer}
-                ])
-                st.rerun()
-            except Exception as exc:
-                st.error(f"후속 질문 오류: {exc}")
-
-        with st.expander("내 일정에 등록된 업무 확인 · 편집 / 삭제", expanded=False):
-            for item in load_tasks()[:30]:
-                st.caption(f"{item['task']} · {item['deadline'] or '기한 미정'}")
-                render_task_actions(item, "meeting_task")
+        summary_tab, tasks_tab = st.tabs([
+            "📝 회의 요약", f"✅ 담당 업무 · {len(result['kim_tasks'])}건"
+        ])
+        with summary_tab:
+            summary = render_summary(result, version)
+        with tasks_tab:
+            render_tasks(result, version, summary)
 

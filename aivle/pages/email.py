@@ -77,7 +77,8 @@ def render():
                 if signature == st.session_state.email_last_sent:
                     st.warning("동일한 내용의 이메일을 이미 전송했습니다.")
                 else:
-                    send_gmail(to, cc, subject, body)
+                    with st.spinner("이메일을 전송하는 중입니다..."):
+                        send_gmail(to, cc, subject, body)
                     st.session_state.email_last_sent = signature
                     st.success("이메일을 전송했습니다.")
 
