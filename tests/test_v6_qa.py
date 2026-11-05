@@ -40,9 +40,9 @@ class EmailDraftTests(unittest.TestCase):
         state["email_error"] = "오류"
         self.db["unrelated"] = "keep"
         self.drafts.clear_draft(state, self.save_setting)
-        self.assertTrue(all(state[key] == "" for key in self.drafts.FIELDS))
-        self.assertTrue(all(value == "" for value in
-                            json.loads(self.db[self.drafts.SETTING]).values()))
+        self.assertTrue(all(state[key] == self.drafts.EMAIL_DEFAULTS[key]
+                            for key in self.drafts.FIELDS))
+        self.assertEqual(json.loads(self.db[self.drafts.SETTING]), self.drafts.EMAIL_DEFAULTS)
         self.assertEqual(self.db["unrelated"], "keep")
 
     def test_corrupted_saved_json_does_not_break_app(self):

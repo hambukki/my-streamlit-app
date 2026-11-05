@@ -14,6 +14,8 @@ import streamlit as st
 
 from .core import connect_db, get_sid, now_kst, save_setting
 from .email_drafts import persist_draft
+from .pro_email import (EMAIL_DRAFT_SCHEMA, build_professional_email_messages,
+                        parse_professional_email_result)
 from .ai import ask_llm
 
 
@@ -23,43 +25,43 @@ def valid_email(address):
     )
 
 
-def make_email_draft():
-    subject = st.session_state.email_subject.strip()
-
-    if not subject:
-        st.session_state.email_error = (
-            "먼저 이메일 제목이나 목적을 입력해주세요."
-        )
+def _write_professional_email(polish=False):
+    state = st.session_state
+    if polish and not state.email_body.strip():
+        state.email_error = "먼저 다듬을 이메일 본문을 작성해 주세요."
+        return
+    if not polish and not any(str(state.get(name, "")).strip() for name in
+                          ("email_subject", "email_brief", "email_body")):
+        state.email_error = "작성할 메일의 목적·제목·핵심 메모 중 하나를 입력해 주세요."
         return
 
     try:
-        with st.spinner("이메일 초안을 작성하고 있습니다..."):
-            answer = ask_llm([
-            {
-                "role": "system",
-                "content": (
-                    "당신은 김대리의 업무 비서입니다. "
-                    "정중하고 간결한 업무 이메일 본문을 작성하세요. "
-                    "확인되지 않은 사실은 만들어내지 마세요. "
-                    "이메일 본문만 출력하세요."
-                )
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"제목: {subject}\n"
-                    f"받는 사람: {st.session_state.email_to}\n"
-                    f"참고 내용: {st.session_state.email_body}"
-                )
-            }
-            ])
+        with st.spinner("업무 상황에 맞는 이메일을 작성하고 있습니다..."):
+            raw = ask_llm(
+                build_professional_email_messages(state, polish=polish),
+                schema=EMAIL_DRAFT_SCHEMA, max_output_tokens=1800
+            )
+        subject, body, review = parse_professional_email_result(
+            raw, existing_subject=state.email_subject,
+            preserve_subject=state.email_subject_mode == "입력 제목 유지"
+        )
+        # 검증된 전체 초안이 있을 때만 입력 필드를 교체합니다.
+        state.email_subject = subject
+        state.email_body = body
+        state.email_review_items = review
+        state.email_error = ""
+        state["email_approval_v7"] = False
+        persist_draft(state, save_setting)
+    except Exception as exc:
+        state.email_error = "업무 이메일 생성 실패: " + str(exc)
 
-        st.session_state.email_body = answer
-        st.session_state.email_error = ""
-        persist_draft(st.session_state, save_setting)
 
-    except Exception as e:
-        st.session_state.email_error = str(e)
+def make_email_draft():
+    _write_professional_email(polish=False)
+
+
+def polish_email_draft():
+    _write_professional_email(polish=True)
 
 
 def send_gmail(to, cc, subject, body):

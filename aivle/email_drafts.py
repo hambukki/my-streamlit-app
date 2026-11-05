@@ -4,7 +4,21 @@
 """
 import json
 
-FIELDS = ("email_to", "email_cc", "email_subject", "email_body")
+EMAIL_DEFAULTS = {
+    "email_to": "",
+    "email_cc": "",
+    "email_subject": "",
+    "email_body": "",
+    "email_brief": "",
+    "email_intent": "업무 요청",
+    "email_audience": "사내 동료·담당자",
+    "email_tone": "표준 비즈니스",
+    "email_deadline": "",
+    "email_sender_name": "김대리",
+    "email_signature": "서명 포함",
+    "email_subject_mode": "입력 제목 유지",
+}
+FIELDS = tuple(EMAIL_DEFAULTS)
 SETTING = "email_composer_draft_v6"
 
 
@@ -15,11 +29,13 @@ def parse_draft(raw):
         parsed = {}
     if not isinstance(parsed, dict):
         parsed = {}
-    return {field: str(parsed.get(field, "") or "") for field in FIELDS}
+    return {field: str(parsed.get(field) or default)
+            for field, default in EMAIL_DEFAULTS.items()}
 
 
 def serialize_draft(state):
-    return json.dumps({key: str(state.get(key, "") or "") for key in FIELDS},
+    return json.dumps({key: str(state.get(key, EMAIL_DEFAULTS[key]) or EMAIL_DEFAULTS[key])
+                       for key in FIELDS},
                       ensure_ascii=False)
 
 
@@ -31,6 +47,6 @@ def persist_draft(state, save_setting):
 def clear_draft(state, save_setting):
     """명시적 '새 이메일 작성' 또는 발송 성공 후에만 현재 초안을 비웁니다."""
     for key in FIELDS:
-        state[key] = ""
+        state[key] = EMAIL_DEFAULTS[key]
     state["email_error"] = ""
     persist_draft(state, save_setting)
