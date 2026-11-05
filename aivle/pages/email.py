@@ -70,11 +70,10 @@ def render():
 
     st.text_input("받는 사람", key="email_to", on_change=_save_composer)
     st.text_input("수신자 성함·호칭 (선택)", key="email_recipient_name",
-                  placeholder="예: 서유진 강사님", on_change=_save_composer)
+                  on_change=_save_composer)
     st.text_input(
         "참조 (CC)",
         key="email_cc",
-        placeholder="여러 명이면 쉼표로 구분",
         on_change=_save_composer
     )
 
@@ -94,15 +93,12 @@ def render():
             st.selectbox("제목 처리", EMAIL_SUBJECT_MODES, key="email_subject_mode",
                          on_change=_save_composer)
         st.text_input("회신 요청 기한 (선택)", key="email_deadline",
-                      placeholder="예: 2026년 11월 9일까지 / 없으면 비워두세요",
                       on_change=_save_composer)
-        st.text_input("제안할 미팅 일시 (선택 · 회신 기한과 별개)",
+        st.text_input("일정·약속 일시 (선택)",
                       key="email_meeting_time",
-                      placeholder="예: 2026년 11월 12일 목요일 오후 2시, 약 50분",
                       on_change=_save_composer)
-        st.text_input("제안할 미팅 장소 (선택 · 확정 아님)",
+        st.text_input("관련 장소 (선택)",
                       key="email_location",
-                      placeholder="예: 강남역 근처 ○○카페 / 후보 장소",
                       on_change=_save_composer)
         sender_col, sign_col = st.columns(2)
         with sender_col:
@@ -114,12 +110,9 @@ def render():
 
     st.text_input("제목", key="email_subject", on_change=_save_composer)
     st.text_area("작성 메모 · 핵심 내용 (AI 참고용)", key="email_brief",
-                 height=100, on_change=_save_composer,
-                 placeholder="예: 11월 12일까지 기획안 검토 요청, 변경 사항 세 가지를 확인해 달라는 내용")
+                 height=100, on_change=_save_composer)
     st.text_area("발송할 이메일 본문 (자유롭게 수정 가능)", key="email_body",
                  height=250, on_change=_save_composer)
-    st.caption("메일 발송 마감일은 내부 업무 기한입니다. 강사에게 제안할 미팅 날짜와 혼동하지 않도록 별도로 입력해 주세요.")
-    st.caption("메모와 발송 본문은 별개로 저장됩니다. 기존 본문을 더 자연스럽게 바꾸려면 '본문 다듬기'를 사용하세요.")
 
     generate_col, polish_col, save_col = st.columns([1.5, 1.2, 1], vertical_alignment="center")
     with generate_col:
@@ -135,11 +128,6 @@ def render():
 
     if st.session_state.email_error:
         st.warning(st.session_state.email_error)
-    if st.session_state.email_review_items:
-        with st.expander("발송 전 확인할 사항", expanded=True):
-            for item in st.session_state.email_review_items:
-                st.markdown("- " + item)
-    st.caption("생성된 문장과 실제 업무 사실을 확인한 뒤 전송해 주세요. AI 생성만으로 이메일이 발송되지는 않습니다.")
 
     approved = st.checkbox(
         "수신자, 참조, 제목, 본문을 확인했고 발송에 동의합니다.",
@@ -180,12 +168,6 @@ def render():
 
 
     st.subheader("이메일 예약전송")
-
-    st.caption(
-        "현재 시연 버전은 앱 서버가 실행 중일 때만 예약을 처리합니다. "
-        "서버가 중단되거나 휴면 상태가 되면 예약 시각에 "
-        "발송되지 않을 수 있습니다."
-    )
 
     with st.form("gmail_schedule_form"):
         send_date = st.date_input(
