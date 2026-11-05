@@ -148,24 +148,29 @@ def _local_tool_result(name):
     return json.dumps({"error": "알 수 없는 도구"}, ensure_ascii=False)
 
 
+def _field(value, key, default=None):
+    """OpenAI 응답 객체와 dict 형식을 안전하게 읽습니다."""
+    return value.get(key, default) if isinstance(value, dict) else getattr(value, key, default)
+
+
 def _verified_web_sources(response):
-    """API가 반환한 출처만 표시합니다. 모델이 임의로 작성한 URL은 제외합니다."""
+    """API가 제공한 출처만 표시합니다. 본문에 임의로 적힌 URL은 검증하지 않습니다."""
     sources = {}
-    for item in getattr(response, "output", []):
-        if getattr(item, "type", "") == "web_search_call":
-            action = getattr(item, "action", None)
-            for candidate in getattr(action, "sources", []) or []:
-                url = str(getattr(candidate, "url", "") or "")
+    for item in _field(response, "output", []) or []:
+        if _field(item, "type", "") == "web_search_call":
+            action = _field(item, "action", None)
+            for candidate in _field(action, "sources", []) or []:
+                url = str(_field(candidate, "url", "") or "")
                 if url.startswith("https://"):
-                    sources[url] = str(getattr(candidate, "title", "") or url)
-        if getattr(item, "type", "") != "message":
+                    sources[url] = str(_field(candidate, "title", "") or url)
+        if _field(item, "type", "") != "message":
             continue
-        for content in getattr(item, "content", []):
-            for ann in getattr(content, "annotations", []) or []:
-                if getattr(ann, "type", "") == "url_citation":
-                    url = str(getattr(ann, "url", ""))
+        for content in _field(item, "content", []) or []:
+            for ann in _field(content, "annotations", []) or []:
+                if _field(ann, "type", "") == "url_citation":
+                    url = str(_field(ann, "url", "") or "")
                     if url.startswith("https://"):
-                        sources[url] = str(getattr(ann, "title", "") or url)
+                        sources[url] = str(_field(ann, "title", "") or url)
     return list(sources.items())[:6]
 
 
@@ -198,9 +203,11 @@ def ask_llm(messages, schema=None, web_search=False, local_tools=False,
 
     input_items = list(messages)
     result = None
+    response_history = []
     for _ in range(4):
         options["input"] = input_items
         result = get_openai_client().responses.create(**options)
+        response_history.append(result)
         calls = [item for item in getattr(result, "output", [])
                  if getattr(item, "type", "") == "function_call"]
         if not calls:
@@ -218,14 +225,54 @@ def ask_llm(messages, schema=None, web_search=False, local_tools=False,
 
     answer = result.output_text or "현재 질문의 답변을 생성하지 못했습니다."
     if web_search:
-        verified = _verified_web_sources(result)
+        # 도구 응답과 마지막 메시지가 서로 다른 API 응답에 실릴 수 있습니다.
+        verified_by_url = {}
+        for response in response_history:
+            for url, title in _verified_web_sources(response):
+                verified_by_url[url] = title
+        verified = list(verified_by_url.items())[:6]
+        if force_search and not verified:
+            # 출처를 놓친 일시적 응답을 사용자에게 그대로 보여주지 않고,
+            # 로컬 업무 도구 없이 웹검색만 한 번 재시도합니다(무한 재시도 금지).
+            try:
+                retry = get_openai_client().responses.create(
+                    model=MODEL,
+                    input=[
+                        {"role": "system", "content": (
+                            "사용자의 최신 정보 요청에 실제 웹검색으로 답하세요. "
+                            "확인된 출처를 인용하고, 확인되지 않은 상호·주소·영업 여부는 만들지 마세요. "
+                            "답변은 한국어로 작성하세요."
+                        )},
+                        *messages,
+                    ],
+                    tools=[{"type": "web_search", "search_context_size": "medium"}],
+                    tool_choice={"type": "web_search"},
+                    include=["web_search_call.action.sources"],
+                )
+                verified = _verified_web_sources(retry)
+                if verified and retry.output_text:
+                    answer = retry.output_text
+                else:
+                    # 출처만 있고 실제 재검색 답변이 없는 경우에도 사실 근거로 사용하지 않습니다.
+                    verified = []
+            except Exception as exc:
+                # 시연 중 다른 채팅 기능까지 중단하지 않도록 검색 재시도만 격리.
+                print("웹검색 출처 재확인 실패:", type(exc).__name__)
         if verified:
             answer += "\n\n**검색 출처**\n" + "\n".join(
                 f"- [{title.replace('[', '').replace(']', '')}]({url.replace(')', '%29')})"
                 for url, title in verified
             )
         elif force_search:
-            answer = "검색 결과에서 확인 가능한 출처를 확보하지 못했습니다. 답변을 사실로 단정할 수 없습니다."
+            question = str(messages[-1].get("content", "") if isinstance(messages[-1], dict) else "")
+            answer = (
+                "웹검색을 시도했지만 이번에는 신뢰할 수 있는 출처 링크를 가져오지 못했어요. "
+                "확인되지 않은 상호나 위치를 실제 업체처럼 추천하지 않겠습니다. "
+                + ("강사님과 자료를 검토할 카페라면 조용한 2~3인용 좌석과 넉넉한 테이블, "
+                   "방문 시간대의 혼잡도를 우선 확인하는 것이 좋아요. "
+                   if "카페" in question or "미팅" in question else "")
+                + "잠시 후 웹검색을 다시 시도해 주세요."
+            )
     return answer
 
 

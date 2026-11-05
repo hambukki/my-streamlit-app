@@ -5,18 +5,14 @@ import streamlit as st
 
 from .core import load_messages, get_setting, save_setting, now_kst
 from .email_drafts import parse_draft, SETTING as EMAIL_DRAFT_SETTING
+from .home_preferences import restore_preferences
 
 def initialize_session(active_chat_id):
     previous_chat_id = st.session_state.get("_active_chat_id")
     st.session_state["_active_chat_id"] = active_chat_id
-    # v5 첫 실행 때 이전 버전의 잘못 기록된 위젯 체크 상태를 한 번만 복구합니다.
-    # 이후에는 사용자가 체크를 해제한 선택을 영구 보존합니다.
-    widget_names = ("widget_clock", "widget_weather", "widget_briefing", "widget_calendar")
-    if get_setting("widget_defaults_v5", "") != "ready":
-        for widget_name in widget_names:
-            save_setting(widget_name, "1")
-            st.session_state[widget_name] = True
-        save_setting("widget_defaults_v5", "ready")
+    # 별도 설정에 저장하여 Streamlit 위젯 키가 페이지 이동 중 삭제되어도 복구합니다.
+    # 기존 버전의 잘못된 '모두 숨김' 설정은 v9 첫 실행 때 한 번만 복구합니다.
+    home_widgets = restore_preferences(st.session_state, get_setting, save_setting)
     saved_email = parse_draft(get_setting(EMAIL_DRAFT_SETTING, "{}"))
     defaults = {
         "messages": load_messages(),
@@ -45,11 +41,11 @@ def initialize_session(active_chat_id):
         "translation_result": "",
         "calendar_year": now_kst().year,
         "calendar_month": now_kst().month,
-        "widget_clock": get_setting("widget_clock", "1") == "1",
-        "widget_weather": get_setting("widget_weather", "1") == "1",
-        "widget_briefing": get_setting("widget_briefing", "1") == "1",
+        "widget_clock": home_widgets["widget_clock"],
+        "widget_weather": home_widgets["widget_weather"],
+        "widget_briefing": home_widgets["widget_briefing"],
         "weather_city": get_setting("weather_city", "서울"),
-        "widget_calendar": get_setting("widget_calendar", "1") == "1",
+        "widget_calendar": home_widgets["widget_calendar"],
         "web_enabled": False,
         "chat_upload_seq": 0,
         "last_voice_hash": "",

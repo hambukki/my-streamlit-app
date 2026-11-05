@@ -9,6 +9,7 @@ from aivle.core import (now_kst, load_tasks, save_setting, load_task_presets,
                         create_task_from_preset, delete_task_preset, set_task_done)
 from aivle.widgets import (task_editor, task_delete_dialog, task_preset_editor, live_korea_clock,
                            CITIES, get_weather, weather_description, render_mini_calendar)
+from aivle.home_preferences import save_preferences
 
 
 @lru_cache(maxsize=1)
@@ -150,9 +151,7 @@ def render():
 
             st.checkbox(
                 label, key=key,
-                on_change=lambda setting=key: save_setting(
-                    setting, "1" if st.session_state[setting] else "0"
-                )
+                on_change=lambda: save_preferences(st.session_state, save_setting)
             )
 
     if st.session_state.widget_briefing:

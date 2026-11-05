@@ -69,6 +69,8 @@ def render():
             st.rerun()
 
     st.text_input("받는 사람", key="email_to", on_change=_save_composer)
+    st.text_input("수신자 성함·호칭 (선택)", key="email_recipient_name",
+                  placeholder="예: 서유진 강사님", on_change=_save_composer)
     st.text_input(
         "참조 (CC)",
         key="email_cc",
@@ -91,8 +93,16 @@ def render():
         with subject_mode_col:
             st.selectbox("제목 처리", EMAIL_SUBJECT_MODES, key="email_subject_mode",
                          on_change=_save_composer)
-        st.text_input("요청·회신 기한 (선택)", key="email_deadline",
-                      placeholder="예: 11월 12일 오후 3시 / 없으면 비워두세요",
+        st.text_input("회신 요청 기한 (선택)", key="email_deadline",
+                      placeholder="예: 2026년 11월 9일까지 / 없으면 비워두세요",
+                      on_change=_save_composer)
+        st.text_input("제안할 미팅 일시 (선택 · 회신 기한과 별개)",
+                      key="email_meeting_time",
+                      placeholder="예: 2026년 11월 12일 목요일 오후 2시, 약 50분",
+                      on_change=_save_composer)
+        st.text_input("제안할 미팅 장소 (선택 · 확정 아님)",
+                      key="email_location",
+                      placeholder="예: 강남역 근처 ○○카페 / 후보 장소",
                       on_change=_save_composer)
         sender_col, sign_col = st.columns(2)
         with sender_col:
@@ -108,6 +118,7 @@ def render():
                  placeholder="예: 11월 12일까지 기획안 검토 요청, 변경 사항 세 가지를 확인해 달라는 내용")
     st.text_area("발송할 이메일 본문 (자유롭게 수정 가능)", key="email_body",
                  height=250, on_change=_save_composer)
+    st.caption("메일 발송 마감일은 내부 업무 기한입니다. 강사에게 제안할 미팅 날짜와 혼동하지 않도록 별도로 입력해 주세요.")
     st.caption("메모와 발송 본문은 별개로 저장됩니다. 기존 본문을 더 자연스럽게 바꾸려면 '본문 다듬기'를 사용하세요.")
 
     generate_col, polish_col, save_col = st.columns([1.5, 1.2, 1], vertical_alignment="center")
