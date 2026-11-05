@@ -3,11 +3,19 @@ import json
 
 import streamlit as st
 
-from .core import load_messages, get_setting, now_kst
+from .core import load_messages, get_setting, save_setting, now_kst
 
 def initialize_session(active_chat_id):
     previous_chat_id = st.session_state.get("_active_chat_id")
     st.session_state["_active_chat_id"] = active_chat_id
+    # v5 첫 실행 때 이전 버전의 잘못 기록된 위젯 체크 상태를 한 번만 복구합니다.
+    # 이후에는 사용자가 체크를 해제한 선택을 영구 보존합니다.
+    widget_names = ("widget_clock", "widget_weather", "widget_briefing", "widget_calendar")
+    if get_setting("widget_defaults_v5", "") != "ready":
+        for widget_name in widget_names:
+            save_setting(widget_name, "1")
+            st.session_state[widget_name] = True
+        save_setting("widget_defaults_v5", "ready")
     defaults = {
         "messages": load_messages(),
         "chat_draft": "",
@@ -19,6 +27,7 @@ def initialize_session(active_chat_id):
         "voice_transcript": "",
         "meeting_result": None,
         "meeting_version": 0,
+        "meeting_input_generation": 0,
         "meeting_audio": None,
         "meeting_autoplay": False,
         "meeting_txt_hash": "",

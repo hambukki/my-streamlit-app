@@ -214,9 +214,57 @@ div[data-baseweb="textarea"] > div {
 
 [data-testid="stChatMessage"] {
     background: #FFFFFF !important;
-    border: 1px solid #D2E1D8 !important;
-    border-radius: 15px;
+    border: 1px solid #E0EAE4 !important;
+    border-radius: 20px 20px 20px 6px;
+    box-shadow: 0 3px 15px rgba(12,70,54,.04);
+    max-width: 85%;
+    padding: 14px 18px !important;
+    margin: 10px 0 !important;
 }
+
+[class*="st-key-chat_line_user_"] [data-testid="stChatMessage"] {
+    background: #DDF2E7 !important;
+    border-color: #C2E3D2 !important;
+    border-radius: 20px 20px 6px 20px;
+    margin-left: auto !important;
+}
+
+[class*="st-key-chat_line_assistant_"] [data-testid="stChatMessage"] {
+    margin-right: auto !important;
+}
+
+[class*="st-key-chat_line_"] [data-testid="stChatMessageAvatar"] {
+    background: #087568 !important;
+    color: #fff !important;
+    border-radius: 14px !important;
+}
+
+[class*="st-key-chat_line_user_"] [data-testid="stChatMessageAvatar"] {
+    background: #C8E3D5 !important;
+    color: #245749 !important;
+}
+
+.chat-empty-state {
+    margin: 28px 0 34px;
+    border: 1px dashed #B6D6C8;
+    border-radius: 18px;
+    min-height: 145px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    background: #F3FAF6;
+    color: #087568;
+    font-size: 20px;
+}
+.chat-empty-state strong {font-size: 16px;color: #275747;}
+.chat-empty-state span {font-size: 13px;color: #607A6F;}
+
+.employee-card-heading {font-size: 10px;letter-spacing: 2px;font-weight: 800;color:#597568;margin:8px 0;}
+.employee-card-name {font-size: 16px;color:#155846;font-weight:800;margin:6px 0 3px;}
+.employee-card-name span {color:#698578;font-size:12px;font-weight:500;}
+section[data-testid="stSidebar"] img {border-radius: 12px;object-fit: cover;}
 
 [data-testid="stChatMessage"] p,
 [data-testid="stChatMessage"] li,
@@ -305,8 +353,8 @@ div[data-baseweb="textarea"] > div {
 
 .calendar-table {
     width: 100%;
-    border-collapse: separate;
-    border-spacing: 5px;
+    border-collapse: collapse;
+    border-spacing: 0;
     table-layout: fixed;
 }
 
@@ -321,9 +369,10 @@ div[data-baseweb="textarea"] > div {
     height: 116px;
     vertical-align: top;
 
-    background: #FFFFFF;
-    border: 1px solid #D4E3DA;
-    border-radius: 10px;
+    background: transparent;
+    border: 0;
+    border-top: 1px solid #E2ECE6;
+    border-radius: 0;
 
     padding: 9px;
     color: #19332C;
@@ -332,8 +381,8 @@ div[data-baseweb="textarea"] > div {
 .calendar-table td:hover { z-index: 4; }
 
 .calendar-table td.calendar-today {
-    border: 2px solid #087568;
-    background: #F3FBF6;
+    border-top: 2px solid #087568;
+    background: #EDF8F1;
 }
 
 .calendar-table .sunday {
@@ -343,7 +392,8 @@ div[data-baseweb="textarea"] > div {
 
 .calendar-table .other-month {
     color: #9AAD9F;
-    background: #EFF4F1;
+    background: transparent;
+    opacity: .56;
 }
 
 .calendar-day {
@@ -454,15 +504,15 @@ hr {
     }
 }
 
-.mini-calendar {background:#fff;border:1px solid #D4E3DA;border-radius:14px;padding:12px;}
-.mini-calendar table {width:100%;table-layout:fixed;border-collapse:separate;border-spacing:4px;}
-.mini-calendar th {text-align:center;font-size:12px;color:#526E63;padding:7px 2px;}
+.mini-calendar {background:transparent;border:0;border-radius:0;padding:2px 0 10px;}
+.mini-calendar table {width:100%;table-layout:fixed;border-collapse:collapse;border-spacing:0;}
+.mini-calendar th {text-align:center;font-size:12px;color:#526E63;padding:12px 2px;border-bottom:1px solid #DEE9E2;}
 .mini-calendar td {position:relative;text-align:center;vertical-align:top;
-  height:48px;background:#F6FAF8;color:#19332C;border-radius:8px;
-  padding:6px 2px;font-size:13px;font-weight:650;}
+  height:54px;background:transparent;color:#19332C;border:0;border-radius:0;
+  padding:9px 2px;font-size:13px;font-weight:650;}
 .mini-calendar td small {display:block;color:#087568;font-size:10px;font-weight:700;}
 .mini-calendar .sunday {color:#C52D47!important;}
-.mini-calendar .mini-today {outline:2px solid #087568;}
+.mini-calendar .mini-today {outline:0;box-shadow:inset 0 -3px 0 #087568;color:#075C50;font-weight:850;}
 .mini-calendar .mini-outside {opacity:.4;}
 div[data-testid="stFileUploader"] button {background:#fff!important;color:#19332C!important;
   border:1px solid #AFCBBF!important;}

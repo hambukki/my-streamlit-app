@@ -5,7 +5,7 @@ import streamlit as st
 from aivle.core import (search_conversations, switch_conversation,
                         start_new_conversation, save_setting, add_task, load_tasks,
                         get_active_chat_id)
-from aivle.widgets import (conversation_rename_dialog, task_editor,
+from aivle.widgets import (conversation_rename_dialog, conversation_delete_dialog, task_editor,
                            render_task_actions, URGENCY_LABELS)
 from aivle.ai import (send_text_chat, send_voice_chat,
                       improve_prompt, restore_prompt)
@@ -21,12 +21,12 @@ def render():
                         use_container_width=True):
             search_word = st.text_input("제목 또는 대화 키워드 검색", key="conversation_search")
             results = search_conversations(search_word)
-            st.caption(f"검색 결과 {len(results)}개 · 대화 선택 또는 제목 편집")
+            st.caption(f"검색 결과 {len(results)}개 · 대화 선택/이름 변경/삭제")
             with st.container(height=360, border=False):
                 if not results:
                     st.info("일치하는 대화가 없습니다.")
                 for conversation_id, title in results:
-                    row, edit = st.columns([6, 1], gap="small")
+                    row, edit, delete = st.columns([5, 1, 1], gap="small")
                     with row:
                         if st.button(
                             title,
@@ -39,15 +39,27 @@ def render():
                         if st.button("✎", key=f"chat_title_edit_{conversation_id}",
                                      help="대화 제목 편집"):
                             conversation_rename_dialog(conversation_id, title)
+                    with delete:
+                        if st.button("🗑", key=f"chat_title_delete_{conversation_id}",
+                                     help="저장된 대화 삭제"):
+                            conversation_delete_dialog(conversation_id, title)
     with menu_right:
         if st.button("새로운 대화", key="chat_new_single", icon=":material/add_comment:",
                      type="primary", use_container_width=True):
             start_new_conversation()
 
 
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    if not st.session_state.messages:
+        st.markdown('<div class="chat-empty-state">✦ <strong>새로운 대화를 시작해보세요.</strong>'
+                    '<span>에이블이 업무와 일정을 도와드릴게요.</span></div>',
+                    unsafe_allow_html=True)
+
+    for index, message in enumerate(st.session_state.messages):
+        role = message["role"] if message["role"] in ("user", "assistant") else "assistant"
+        avatar = ":material/badge:" if role == "user" else ":material/assistant:"
+        with st.container(key=f"chat_line_{role}_{index}"):
+            with st.chat_message(role, avatar=avatar):
+                st.markdown(message["content"])
 
     # 음성 답변은 채팅 메시지 바로 아래에만 표시합니다.
     if st.session_state.reply_audio:

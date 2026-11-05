@@ -29,28 +29,35 @@ def task_editor(task_id=None, suggested_date=""):
     st.caption(f"{title} — 저장하면 홈·내 일정·AI 채팅에 함께 반영됩니다.")
     default_date = item["deadline"] if item else suggested_date
     default_time = item["time"] if item else ""
-    with st.form(f"task_editor_form_{task_id or 'new'}"):
-        name = st.text_input("업무명 *", value=item["task"] if item else "")
-        detail = st.text_area("업무 내용", value=item["detail"] if item else "")
-        use_date = st.checkbox("날짜 지정", value=bool(default_date))
-        due_date = st.date_input(
-            "업무 날짜", value=(datetime.strptime(default_date, "%Y-%m-%d").date()
-                             if default_date else now_kst().date()),
-            disabled=not use_date
-        )
-        use_time = st.checkbox("시간 지정", value=bool(default_time))
-        due_time = st.time_input(
-            "시간", value=(datetime.strptime(default_time, "%H:%M").time()
-                         if default_time else now_kst().replace(hour=9, minute=0).time()),
-            disabled=not use_time, step=900
-        )
-        urgency_options = list(URGENCY_LABELS)
-        urgency = st.selectbox(
-            "업무 중요도·표시 색상", urgency_options,
-            index=urgency_options.index(item.get("urgency", "normal") if item else "normal"),
-            format_func=lambda value: URGENCY_LABELS[value]
-        )
-        submitted = st.form_submit_button("저장", type="primary", use_container_width=True)
+    # st.form 안의 체크박스는 저장을 누를 때까지 rerun되지 않아
+    # date_input/time_input의 disabled가 업데이트되지 않습니다.
+    editor_key = f"task_editor_{task_id or 'new'}"
+    name = st.text_input("업무명 *", value=item["task"] if item else "",
+                         key=f"{editor_key}_name")
+    detail = st.text_area("업무 내용", value=item["detail"] if item else "",
+                          key=f"{editor_key}_detail")
+    use_date = st.checkbox("날짜 지정", value=bool(default_date),
+                           key=f"{editor_key}_use_date")
+    due_date = st.date_input(
+        "업무 날짜", value=(datetime.strptime(default_date, "%Y-%m-%d").date()
+                         if default_date else now_kst().date()),
+        disabled=not use_date, key=f"{editor_key}_date"
+    )
+    use_time = st.checkbox("시간 지정", value=bool(default_time),
+                           key=f"{editor_key}_use_time")
+    due_time = st.time_input(
+        "시간", value=(datetime.strptime(default_time, "%H:%M").time()
+                     if default_time else now_kst().replace(hour=9, minute=0, second=0, microsecond=0).time()),
+        disabled=not use_time, step=900, key=f"{editor_key}_time"
+    )
+    urgency_options = list(URGENCY_LABELS)
+    urgency = st.selectbox(
+        "업무 중요도·표시 색상", urgency_options,
+        index=urgency_options.index(item.get("urgency", "normal") if item else "normal"),
+        format_func=lambda value: URGENCY_LABELS[value], key=f"{editor_key}_urgency"
+    )
+    submitted = st.button("저장", type="primary", use_container_width=True,
+                          key=f"{editor_key}_save")
     if submitted:
         try:
             deadline = due_date.isoformat() if use_date else ""
@@ -120,6 +127,23 @@ def conversation_rename_dialog(conversation_id, current_title):
             st.rerun()
         except ValueError as exc:
             st.error(str(exc))
+
+
+@st.dialog("저장된 대화 삭제")
+def conversation_delete_dialog(conversation_id, title):
+    from .core import delete_conversation, get_active_chat_id
+    st.warning(f"'{title}' 대화를 삭제하면 해당 메시지와 첨부 자료를 복구할 수 없습니다.")
+    if st.button("이 대화 삭제 확인", icon=":material/delete_forever:",
+                 type="primary", key=f"confirm_delete_chat_{conversation_id}"):
+        if not delete_conversation(conversation_id):
+            st.error("대화를 찾을 수 없습니다.")
+            return
+        if conversation_id == get_active_chat_id():
+            # 다른 기존 대화를 자동 선택하는 대신 새 채팅 창을 엽니다.
+            from .core import start_new_conversation
+            start_new_conversation()
+        else:
+            st.rerun()
 
 
 def render_task_actions(task, prefix, show_done=True):

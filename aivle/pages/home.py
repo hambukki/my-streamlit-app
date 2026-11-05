@@ -1,11 +1,70 @@
 """홈 대시보드와 오늘의 업무 브리핑."""
-from datetime import date
+from datetime import date, timedelta
 
 import streamlit as st
 from aivle.core import (now_kst, load_tasks, save_setting, load_task_presets,
                         create_task_from_preset, delete_task_preset, set_task_done)
 from aivle.widgets import (task_editor, task_delete_dialog, task_preset_editor, live_korea_clock,
                            CITIES, get_weather, weather_description, render_mini_calendar)
+
+
+def filter_completed_tasks(tasks, period="이번 주", reference=None, keyword=""):
+    """실제 완료일 기준 필터. v4에서 완료된 업무는 기존 기한을 대체 기준으로 사용합니다."""
+    today = reference or now_kst().date()
+    keyword = (keyword or "").strip().casefold()
+    beginning = (today - timedelta(days=today.weekday())
+                 if period in ("이번 주", "주별") else today.replace(day=1))
+    next_month = (today.replace(year=today.year + 1, month=1, day=1)
+                  if today.month == 12 else today.replace(month=today.month + 1, day=1))
+    end = (beginning + timedelta(days=7) if period in ("이번 주", "주별") else next_month)
+    filtered = []
+    for task in tasks:
+        if not task.get("is_done"):
+            continue
+        if keyword and keyword not in (task.get("task", "") + " " + task.get("detail", "")).casefold():
+            continue
+        completed_day = (task.get("completed_at") or "")[:10] or task.get("deadline", "")
+        if not completed_day:
+            continue
+        try:
+            if beginning <= date.fromisoformat(completed_day) < end:
+                filtered.append({**task, "display_completed_on": completed_day})
+        except ValueError:
+            continue
+    return sorted(filtered, key=lambda task: (task["display_completed_on"], task["task"]), reverse=True)
+
+
+def render_completed_tasks(tasks, today):
+    """완료 업무를 주/월 및 키워드로 확인하고 다시 미완료로 되돌립니다."""
+    with st.expander("완료한 업무 · 주별/월별 확인 및 검색", expanded=False):
+        st.caption("완료 처리한 날짜를 기준으로 조회합니다. 이전 버전의 기록은 업무 기한을 사용합니다.")
+        period_col, date_col = st.columns([1, 2])
+        with period_col:
+            period = st.selectbox("조회 단위", ["주별", "월별"], key="home_completed_period")
+        with date_col:
+            anchor = st.date_input("조회할 날짜", value=today, key="home_completed_anchor")
+        keyword = st.text_input("완료 업무 검색", placeholder="업무명 또는 설명을 입력하세요",
+                                key="home_completed_search")
+        completed = filter_completed_tasks(tasks, period, anchor, keyword)
+        st.caption(f"검색 결과 · {len(completed)}건")
+        if not completed:
+            st.info("해당 기간에 완료된 업무가 없습니다.")
+        last_day = None
+        for task in completed:
+            day = task["display_completed_on"]
+            if last_day != day:
+                st.markdown(f"**{day}**")
+                last_day = day
+            info, revert = st.columns([5, 1], vertical_alignment="center")
+            with info:
+                st.markdown("✓ " + task["task"])
+                if task.get("detail"):
+                    st.caption(task["detail"])
+            with revert:
+                if st.button("되돌리기", key=f"home_undo_{task['id']}",
+                             help="미완료 업무로 다시 표시"):
+                    set_task_done(task["id"], False)
+                    st.rerun()
 
 
 def render():
@@ -73,14 +132,11 @@ def render():
             ("widget_calendar", "미니 캘린더")
         ]:
 
-            value = st.checkbox(
-                label,
-                key=key
-            )
-
-            save_setting(
-                key,
-                "1" if value else "0"
+            st.checkbox(
+                label, key=key,
+                on_change=lambda setting=key: save_setting(
+                    setting, "1" if st.session_state[setting] else "0"
+                )
             )
 
     if st.session_state.widget_briefing:
@@ -122,29 +178,16 @@ def render():
             "완료하지 않은 업무를 기한별로 정리했습니다."
         )
 
+        a, b, c = st.columns(3)
+        a.metric("오늘 처리할 업무", len(today_tasks))
+        b.metric("다가오는 업무", len(upcoming_tasks))
+        c.metric("전체 미완료 업무", len(pending_tasks))
+
+        render_completed_tasks(tasks, today)
+
         if not pending_tasks:
-            st.success(
-                "등록된 미완료 업무가 없습니다."
-            )
-
+            st.success("등록된 미완료 업무가 없습니다.")
         else:
-
-            a, b, c = st.columns(3)
-
-            a.metric(
-                "오늘 처리할 업무",
-                len(today_tasks)
-            )
-
-            b.metric(
-                "다가오는 업무",
-                len(upcoming_tasks)
-            )
-
-            c.metric(
-                "전체 미완료 업무",
-                len(pending_tasks)
-            )
 
             groups = [
                 ("오늘의 업무", ordered(today_tasks)),

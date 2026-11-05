@@ -9,6 +9,8 @@ from aivle.documents import decode_text_file
 from aivle.meeting_logic import verify_meeting_tasks, combine_meeting_sources
 from aivle.meeting_sections import render_summary, render_tasks
 
+AUTO_TRANSCRIBE_PLACEHOLDER = "(요약 실행 시 자동 전사)"
+
 
 def _audio_mime(name):
     suffix = name.rsplit(".", 1)[-1].lower()
@@ -38,18 +40,21 @@ def _prepare_uploaded_text(uploaded, state_key, hash_key, decode=False):
 
 
 def _transcribe_file(uploaded, state_key, button_key):
-    """업로드된 오디오를 재생하고 전체 전사 텍스트를 검토할 수 있게 합니다."""
+    """선택적으로 전체 전사 텍스트를 미리 검토하게 합니다."""
     if uploaded is None:
         st.info("회의 음성을 첨부하거나 녹음해주세요.")
         return
     data = uploaded.getvalue()
     mime = _audio_mime(uploaded.name)
     st.audio(data, format=mime)
-    st.caption("음성 파일 전체를 문자로 변환합니다. 25MB를 초과하면 안내를 표시합니다.")
+    st.caption("미리 전사하여 수정할 수도 있습니다. 전사하지 않아도 '회의록 정리 실행' 한 번으로 분석됩니다 (25MB 이하).")
     if st.button("음성 전체 텍스트 변환", key=button_key, icon=":material/transcribe:"):
         try:
             with st.spinner("전체 음성을 문자로 변환하고 있습니다..."):
                 st.session_state[state_key] = transcribe_audio(uploaded)
+                st.session_state[f"{state_key}_revision"] = (
+                    st.session_state.get(f"{state_key}_revision", 0) + 1
+                )
             st.success("음성 인식이 완료됐습니다. 아래 전사 결과를 검토하고 수정할 수 있습니다.")
         except Exception as exc:
             st.error(f"음성 인식 실패: {exc}")
@@ -57,9 +62,77 @@ def _transcribe_file(uploaded, state_key, button_key):
                        file_name=uploaded.name, key=f"{button_key}_download")
 
 
+def reset_meeting_workspace():
+    """이전 회의 자료·검토 내용·결과를 모두 비우고 새 업로더를 엽니다."""
+    st.session_state["meeting_input_generation"] = (
+        st.session_state.get("meeting_input_generation", 0) + 1
+    )
+    for key in ("meeting_txt_review", "meeting_txt_hash", "meeting_audio_review",
+                "meeting_audio_hash", "meeting_recording_review", "meeting_recording_hash"):
+        st.session_state[key] = ""
+    for key in ("meeting_audio_review_revision", "meeting_recording_review_revision"):
+        st.session_state[key] = 0
+    st.session_state.meeting_result = None
+    st.session_state.meeting_version += 1
+    st.session_state.meeting_audio = None
+    st.session_state.meeting_autoplay = False
+    st.session_state.meeting_followup = []
+    save_setting("meeting_result", "null")
+
+
+def collect_meeting_sources(notes, txt_text, audio_text, recording_text,
+                            audio_present=False, recording_present=False):
+    """아직 전사하지 않은 음성도 요약 실행 대상에 표시합니다."""
+    entries = [
+        ("회의메모", notes), ("회의록 TXT", txt_text),
+        ("회의 음성 파일", audio_text if audio_text and audio_text.strip()
+         else AUTO_TRANSCRIBE_PLACEHOLDER if audio_present else ""),
+        ("회의 내용 녹음", recording_text if recording_text and recording_text.strip()
+         else AUTO_TRANSCRIBE_PLACEHOLDER if recording_present else ""),
+    ]
+    return {name: value.strip() for name, value in entries if value and value.strip()}
+
+
+def prepare_selected_meeting_text(sources, selected, audio_file=None, recording=None,
+                                  transcription_fn=None):
+    """선택된 음성의 미전사분을 자동 인식하고, 완전한 원문과 전사 변경사항을 반환합니다."""
+    transcription_fn = transcription_fn or transcribe_audio
+    resolved = dict(sources)
+    transcripts = {}
+    for label, uploaded, review_key in (
+        ("회의 음성 파일", audio_file, "meeting_audio_review"),
+        ("회의 내용 녹음", recording, "meeting_recording_review"),
+    ):
+        if label not in selected or uploaded is None:
+            continue
+        if resolved.get(label) != AUTO_TRANSCRIBE_PLACEHOLDER:
+            continue
+        transcript = transcription_fn(uploaded)
+        if not transcript or not transcript.strip():
+            raise ValueError(f"{label}에서 인식된 텍스트가 없습니다. 음성 파일을 확인해주세요.")
+        transcripts[review_key] = transcript.strip()
+        resolved[label] = transcript.strip()
+    return combine_meeting_sources(resolved, selected), transcripts
+
+
+def _audio_review_editor(label, review_key, generation):
+    """전사/업로드 변경 시에도 텍스트 편집 위젯 상태와 충돌하지 않습니다."""
+    fingerprint = st.session_state.get(review_key.replace("_review", "_hash"), "")[:10]
+    revision = st.session_state.get(f"{review_key}_revision", 0)
+    updated = st.text_area(label, value=st.session_state.get(review_key, ""),
+                           key=f"{review_key}_editor_{generation}_{fingerprint}_{revision}",
+                           height=200)
+    st.session_state[review_key] = updated
+
+
 def render():
     st.title("회의록 정리")
     st.caption("회의 내용 확인 → 요약과 음성 듣기 → 김대리 담당 업무 검토")
+    if st.button("새로운 회의 정리", icon=":material/note_add:",
+                 key="meeting_start_fresh", help="이전 입력과 분석 결과를 비우고 새 회의를 시작합니다."):
+        reset_meeting_workspace()
+        st.rerun()
+    generation = st.session_state.get("meeting_input_generation", 0)
 
     with st.container(border=True):
         st.subheader("① 회의 자료 입력")
@@ -69,40 +142,39 @@ def render():
         )
 
         with tab_memo:
-            notes = st.text_area("회의메모", height=180, key="meeting_manual_notes",
+            notes = st.text_area("회의메모", height=180, key=f"meeting_manual_notes_{generation}",
                                  placeholder="회의 중 직접 적은 메모나 회의 내용을 입력하세요.")
         with tab_txt:
             txt_file = st.file_uploader("회의록 TXT 첨부", type=["txt", "md"],
-                                        key="meeting_text_upload")
+                                        key=f"meeting_text_upload_{generation}")
             _prepare_uploaded_text(txt_file, "meeting_txt_review", "meeting_txt_hash", decode=True)
             if txt_file is not None:
                 st.text_area("TXT 전체 내용 검토 · 편집", key="meeting_txt_review", height=200)
         with tab_audio:
             audio_file = st.file_uploader("회의 음성 파일 첨부", type=["mp3", "wav", "m4a", "mp4", "webm"],
-                                          key="meeting_audio_upload")
+                                          key=f"meeting_audio_upload_{generation}")
             _prepare_uploaded_text(audio_file, "meeting_audio_review", "meeting_audio_hash")
             _transcribe_file(audio_file, "meeting_audio_review", "meeting_audio_transcribe")
             if audio_file is not None:
-                st.text_area("음성 파일 전체 전사 검토 · 편집", key="meeting_audio_review", height=200)
+                _audio_review_editor("음성 파일 전체 전사 검토 · 편집", "meeting_audio_review", generation)
         with tab_record:
-            recording = st.audio_input("회의 내용 녹음", key="meeting_recording")
+            recording = st.audio_input("회의 내용 녹음", key=f"meeting_recording_{generation}")
             _prepare_uploaded_text(recording, "meeting_recording_review", "meeting_recording_hash")
             _transcribe_file(recording, "meeting_recording_review", "meeting_recording_transcribe")
             if recording is not None:
-                st.text_area("녹음 전체 전사 검토 · 편집", key="meeting_recording_review", height=200)
+                _audio_review_editor("녹음 전체 전사 검토 · 편집", "meeting_recording_review", generation)
 
-    sources = {
-        name: value.strip()
-        for name, value in [
-            ("회의메모", notes),
-            ("회의록 TXT", st.session_state.get("meeting_txt_review", "")),
-            ("회의 음성 파일", st.session_state.get("meeting_audio_review", "")),
-            ("회의 내용 녹음", st.session_state.get("meeting_recording_review", "")),
-        ] if value and value.strip()
-    }
+    sources = collect_meeting_sources(
+        notes, st.session_state.get("meeting_txt_review", ""),
+        st.session_state.get("meeting_audio_review", ""),
+        st.session_state.get("meeting_recording_review", ""),
+        audio_present=audio_file is not None,
+        recording_present=recording is not None,
+    )
     if sources:
         st.subheader("② 분석할 자료 확인")
-        source_key = hashlib.sha256("|".join(sources).encode("utf-8")).hexdigest()[:12]
+        source_key = f"{generation}_" + hashlib.sha256(
+            "|".join(sources).encode("utf-8")).hexdigest()[:12]
         selected = st.multiselect("요약에 포함할 자료 (기본값: 모두 포함)",
                                   options=list(sources), default=list(sources),
                                   key=f"meeting_sources_{source_key}")
@@ -110,12 +182,21 @@ def render():
                    "서로 중복되는 내용은 하나의 회의 사실로 취급합니다.")
     else:
         selected = []
-        st.info("회의메모를 입력하거나 회의록 TXT를 첨부하거나 음성을 변환해주세요.")
+        st.info("회의메모나 TXT를 입력하거나 음성 파일을 첨부해주세요. 음성은 요약 실행 시 자동으로 전사됩니다.")
 
     selected_text = combine_meeting_sources(sources, selected)
     if st.button("회의록 정리 실행", type="primary", disabled=not bool(selected_text)):
         try:
-            source = selected_text
+            # 오디오만 첨부한 경우에도 한 번의 실행으로 전사→요약합니다.
+            with st.spinner("선택한 음성을 전사하고 회의 자료를 준비하는 중입니다..."):
+                source, new_transcripts = prepare_selected_meeting_text(
+                    sources, selected, audio_file, recording
+                )
+            for review_key, transcript in new_transcripts.items():
+                st.session_state[review_key] = transcript
+                st.session_state[f"{review_key}_revision"] = (
+                    st.session_state.get(f"{review_key}_revision", 0) + 1
+                )
 
             if not source.strip():
                 st.warning("회의 내용을 입력해주세요.")

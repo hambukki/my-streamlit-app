@@ -64,6 +64,13 @@ with st.sidebar:
             st.query_params["view"] = page_id
             st.rerun()
     st.divider()
+    badge_path = Path(__file__).resolve().parent / "assets" / "employee_badge.png"
+    if badge_path.exists():
+        st.markdown('<div class="employee-card-heading">AIVLE · STAFF PROFILE</div>',
+                    unsafe_allow_html=True)
+        st.image(str(badge_path), use_container_width=True)
+        st.markdown('<div class="employee-card-name">김대리 <span>· 임직원</span></div>',
+                    unsafe_allow_html=True)
     st.caption("김대리 전담 비서")
     st.caption(f"MODEL · {MODEL}")
 

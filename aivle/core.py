@@ -232,6 +232,14 @@ def create_conversation():
 
 
 def choose_conversation():
+    # 새 브라우저 세션/새로고침에서는 이전 대화를 자동 복원하지 않습니다.
+    # Streamlit의 일반 위젯 rerun에서는 이 플래그가 유지되어 대화가 초기화되지 않습니다.
+    if not st.session_state.get("_chat_browser_initialized", False):
+        st.session_state["_chat_browser_initialized"] = True
+        fresh_id = create_conversation()
+        st.query_params["chat"] = fresh_id
+        return fresh_id
+
     candidate = (
         st.query_params.get("chat", "")
         or get_setting("active_conversation_id", "")
@@ -301,6 +309,26 @@ def start_new_conversation():
     save_setting("pending_event", "null")
 
     st.rerun()
+
+
+def delete_conversation(conversation_id):
+    """현재 사용자 소유의 대화와 관련 메시지·첨부만 함께 삭제합니다."""
+    with connect_db() as conn:
+        owned = conn.execute(
+            "SELECT 1 FROM conversations WHERE id=? AND sid=?",
+            (conversation_id, get_sid())
+        ).fetchone()
+        if not owned:
+            return False
+        conn.execute("DELETE FROM messages WHERE sid=? AND conversation_id=?",
+                     (get_sid(), conversation_id))
+        conn.execute("DELETE FROM chat_attachments WHERE sid=? AND conversation_id=?",
+                     (get_sid(), conversation_id))
+        conn.execute("DELETE FROM conversations WHERE id=? AND sid=?",
+                     (conversation_id, get_sid()))
+        conn.execute("DELETE FROM settings WHERE sid=? AND name=? AND value=?",
+                     (get_sid(), "active_conversation_id", conversation_id))
+    return True
 
 
 def set_conversation_title(first_message):
@@ -428,7 +456,8 @@ def load_tasks():
                 due_time,
                 detail,
                 COALESCE(is_done, 0),
-                urgency
+                urgency,
+                completed_at
             FROM tasks
             WHERE sid=?
             ORDER BY
@@ -451,7 +480,8 @@ def load_tasks():
             "time": row[3] or "",
             "detail": row[4] or "",
             "is_done": bool(row[5]),
-            "urgency": row[6] or "normal"
+            "urgency": row[6] or "normal",
+            "completed_at": row[7] or ""
         }
         for row in rows
     ]
@@ -570,6 +600,8 @@ def migrate_task_status():
             conn.execute(
                 "ALTER TABLE tasks ADD COLUMN urgency TEXT NOT NULL DEFAULT 'normal'"
             )
+        if "completed_at" not in columns:
+            conn.execute("ALTER TABLE tasks ADD COLUMN completed_at TEXT NOT NULL DEFAULT ''")
 
 
 def load_task_presets():
@@ -613,7 +645,8 @@ def set_task_done(task_id, done):
 
     with connect_db() as conn:
         conn.execute(
-            "UPDATE tasks SET is_done=? "
+            "UPDATE tasks SET is_done=?, completed_at=? "
             "WHERE id=? AND sid=?",
-            (1 if done else 0, task_id, get_sid())
+            (1 if done else 0, now_kst().isoformat() if done else "",
+             task_id, get_sid())
         )
