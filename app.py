@@ -311,6 +311,13 @@ def get_chain(api_key):
 
         for doc in docs1 + docs2:
 
+            page = doc.metadata.get("page")
+
+            # 목차를 묻는 질문이 아니면 표지·목차 제외
+            if "목차" not in question and "차례" not in question:
+                if isinstance(page, int) and page <= 3:
+                    continue
+
             key = (
                 doc.page_content,
                 doc.metadata.get("page"),
